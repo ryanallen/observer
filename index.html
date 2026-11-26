@@ -30,6 +30,9 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 .sound { position: fixed; left: 24px; bottom: 20px; font-family: Mono, monospace; font-size: 10px; letter-spacing: .24em; text-transform: uppercase;
   color: #6a665f; background: none; border: 0; cursor: pointer; padding: 8px; }
 .sound:hover { color: var(--ink); }
+.ask { position: fixed; left: 50%; bottom: 9%; transform: translateX(-50%); font-family: Mono, monospace; font-size: 11px; letter-spacing: .32em;
+  text-transform: uppercase; color: var(--dim); padding-left: .32em; opacity: 0; transition: opacity 1.2s ease; pointer-events: none; white-space: nowrap; }
+.ask.on { opacity: 1; }
 @media (max-width: 600px) { .place { left: 16px; top: 16px; } .cap { top: 66%; } }
 </style>
 </head>
@@ -40,6 +43,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 <div class="place" id="place"></div>
 <button class="skip" id="skip" aria-label="Skip to hold">skip</button>
 <button class="sound" id="sound" aria-pressed="false">sound off</button>
+<div class="ask" id="ask">click anywhere for sound</div>
 <script>
 (() => {
   const cv = document.getElementById('c'), g = cv.getContext('2d');
@@ -257,12 +261,13 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   $('sound').onclick = e => {
     e.stopPropagation();
     if (soundOn) { soundOn = false; } else startSound();
-    $('sound').textContent = soundOn ? 'sound on' : 'sound off'; $('sound').setAttribute('aria-pressed', soundOn);
+    $('sound').textContent = soundOn ? 'sound on' : 'sound off'; $('sound').setAttribute('aria-pressed', soundOn); $('ask').classList.remove('on');
   };
   // the first tap or key turns the sound on (a browser plays nothing before one)
   const firstGesture = e => {
     if (e.target && e.target.id === 'sound') return;
     removeEventListener('pointerdown', firstGesture); removeEventListener('keydown', firstGesture);
+    $('ask').classList.remove('on');
     startSound().then(() => { $('sound').textContent = 'sound on'; $('sound').setAttribute('aria-pressed', true); });
   };
   addEventListener('pointerdown', firstGesture); addEventListener('keydown', firstGesture);
@@ -270,6 +275,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 
   // ---- the opening ----
   (async () => {
+    if (!matchMedia('(pointer: coarse)').matches) $('ask').classList.add('on');   // a browser plays no sound until a click
     await wait(1200);
     tween('pt', 1, 2600); await wait(2400);
     await say('This is a point.', 3200);
