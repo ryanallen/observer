@@ -145,7 +145,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     if (!synth) beats = ['audio/heartbeat-1.mp3', 'audio/heartbeat-2.mp3'].map(u => load(u, .9));
     // the lines' sound and the pull's, cut from a waterphone and an Apprehension Engine (?lines=a-d, ?pull=a-b to compare)
     const q = new URLSearchParams(location.search);
-    sfx.lines = load(`audio/lines-${/^[a-d]$/.test(q.get('lines')) ? q.get('lines') : 'a'}.mp3`, .75);
+    sfx.lines = load(`audio/lines-${/^[a-d]$/.test(q.get('lines')) ? q.get('lines') : 'a'}.mp3`, .55);
     sfx.pull = load(`audio/pull-${/^[ab]$/.test(q.get('pull')) ? q.get('pull') : 'a'}.mp3`, .8);
   };
   const sfx = {};
