@@ -274,9 +274,9 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const hideTip = key => { if (tipKey === key) { $('tip').classList.remove('on'); tipKey = null; } };
   // ---- the opening ----
   (async () => {
-    await wait(1200);
+    // the point from the first moment
     if (!matchMedia('(pointer: coarse)').matches && !soundOn) tip('sound', 'click anywhere for sound', 5000);   // a browser plays no sound until a click
-    tween('pt', 1, 2600); await wait(2400);
+    tween('pt', 1, 1600); await wait(2400);
     await say('This is a point.', 3200);
     await say('It has no size, so there is no telling how far away it is.', 4400);
     tween('linesA', 1, 1600); tween('lines', 1, 6500, t => t);

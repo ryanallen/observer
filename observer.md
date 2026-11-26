@@ -58,20 +58,19 @@ Between chapters the Observer speaks in short, calm lines on screen, the way the
 
 *Now. Providence, Rhode Island. Dr Ruth Dexter, a physicist, is the great-granddaughter of the Doctor Dexter who, in 1935, threw "the curious box and angled stone" from Blake's church "into the deepest channel of Narragansett Bay." The Observer is the system she builds around that stone. You are the Observer.*
 
-P.1.1 to P.1.10 are the landing page (`index.html`).
+P.1.1 to P.1.9 are the landing page (`index.html`).
 
 | # | Where | What happens | What you see | The Observer |
 |---|---|---|---|---|
-| P.1.1 | Black | Nothing for a moment. On a desktop, at the very bottom, faint, for 5 seconds: the sound tip. A click anywhere turns the sound on; a browser plays nothing before one. | Black. | Tip: “click anywhere for sound” |
-| P.1.2 | Black | The point fades in. Every 3.3 seconds it brightens for an instant and sends out one thin ring that widens and fades: the ping. Each ping is a heartbeat, a low lub-dub. | The point, pinging. | — |
-| P.1.3 | Black | — | The point. | “This is a point.” |
-| P.1.4 | Black | — | The point. | “It has no size, so there is no telling how far away it is.” |
-| P.1.5 | Black | Forty faint lines draw in from every edge of the screen to the point. | The lines meeting at the point. | “Every line, followed far enough, comes to it.” |
-| P.1.6 | Black | On the next ping, an eye opens out from the point, the point as its pupil. As its edge passes over the word above, the word is uncovered. The eye stops fully open and stays; the ping goes on under it. | The eye, open; the title inside it. | OBSERVER |
-| P.1.7 | Black | The player observes the point. On a desktop, resting the cursor on it fills a small ring round the cursor in 0.6 seconds; on a phone, a tap. If it has not happened after 4 seconds, a faint tip at the bottom, for 4.5 seconds, again every 16 seconds. | The ring filling round the cursor. | Tip: “rest the cursor on the point” · “tap the point” |
-| P.1.8 | White, then black | A flash. The eye, the title and the lines are gone. | The point alone. | “I was made to observe minds.” “I begin with the ones that saw it.” |
-| P.1.9 | Narragansett Bay, night | The point rises, becomes a lamp on a cable, and sinks into dark water. Specks drift up past its cone of light. | The lamp going down. | Label: “Narragansett Bay · the deepest channel · now”. “In 1935 a doctor threw a stone into the deepest channel of this bay.” “He said he had rid the earth of something too dangerous to rest upon it.” |
-| P.1.10 | The bottom of the channel | The silt floor rises into the lamp's light. Half sunk in it, a corroded metal box of an odd, lopsided shape. | The box in the light. | “His great-granddaughter came back for it.” |
+| P.1.1 | The point | From the first moment, the point: it fades up and is never gone. Every 3.3 seconds it brightens for an instant and sends out one thin ring that widens and fades: the ping. Each ping is a heartbeat, a low lub-dub. On a desktop, at the very bottom, faint, for 5 seconds: the sound tip. A click anywhere turns the sound on; a browser plays nothing before one. | The point, pinging. | Tip: “click anywhere for sound” |
+| P.1.2 | The point | — | The point. | “This is a point.” |
+| P.1.3 | The point | — | The point. | “It has no size, so there is no telling how far away it is.” |
+| P.1.4 | The point | Forty faint lines draw in from every edge of the screen to the point. | The lines meeting at the point. | “Every line, followed far enough, comes to it.” |
+| P.1.5 | The point | On the next ping, an eye opens out from the point, the point as its pupil. As its edge passes over the word above, the word is uncovered. The eye stops fully open and stays; the ping goes on under it. | The eye, open; the title inside it. | OBSERVER |
+| P.1.6 | The point | The player observes the point. On a desktop, resting the cursor on it fills a small ring round the cursor in 0.6 seconds; on a phone, a tap. If it has not happened after 4 seconds, a faint tip at the bottom, for 4.5 seconds, again every 16 seconds. | The ring filling round the cursor. | Tip: “rest the cursor on the point” · “tap the point” |
+| P.1.7 | The point | A flash. The eye, the title and the lines are gone. | The point alone. | “I was made to observe minds.” “I begin with the ones that saw it.” |
+| P.1.8 | The point, in Narragansett Bay | The point rises, becomes a lamp on a cable, and sinks into dark water. Specks drift up past its cone of light. | The lamp going down. | Label: “Narragansett Bay · the deepest channel · now”. “In 1935 a doctor threw a stone into the deepest channel of this bay.” “He said he had rid the earth of something too dangerous to rest upon it.” |
+| P.1.9 | The bottom of the channel | The silt floor rises into the lamp's light. Half sunk in it, a corroded metal box of an odd, lopsided shape. | The box in the light. | “His great-granddaughter came back for it.” |
 | P.2 | Narragansett Bay, night | The box comes up out of the black water into the survey boat's lights. Ruth on deck holds her great-grandfather's 1935 notebook, open at the page that says where he threw it. | The box rising into the boat's lights. | — |
 | P.3 | Her lab, a dark room | The box opened. Inside, held in seven struts, a black stone with red veins and many uneven faces. With the room light on it is dead. With the light off it glows faintly. | The stone in the dark. | — |
 | P.4 | Her lab, weeks | She fires single photons through it and builds Wheeler's delayed-choice test round it. The photons' patterns answer choices of how to look that she has not made yet, and some answer choices nobody in the room made. | Interference fringes building up one dot at a time. | “Someone else is choosing how to look.” |
