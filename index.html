@@ -37,7 +37,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 <canvas id="c"></canvas>
 <div class="title" id="title">OBSERVER</div>
 <div class="cap" id="cap"></div>
-<div class="hint" id="hint">hold to observe</div>
+<div class="hint" id="hint">rest on the point</div>
 <div class="place" id="place"></div>
 <button class="skip" id="skip" aria-label="Skip to hold">skip</button>
 <script>
@@ -166,30 +166,34 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       g.lineWidth = 1.2; g.beginPath(); g.arc(cx, cy, pr, 0, Math.PI * 2); g.stroke();
     }
     // the hold ring
-    if (S.ring > 0 || holding) {
-      const rr = Math.min(W, H) * .07;
-      g.strokeStyle = 'rgba(233,228,218,.12)'; g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.stroke();
-      g.strokeStyle = 'rgba(233,228,218,.85)'; g.lineWidth = 1.5; g.beginPath(); g.arc(cx, cy, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * S.ring); g.stroke();
+    // the ring fills round the cursor while it rests on the point
+    if (S.ring > 0 && mouse.on) {
+      const rr = 22, rx = mouse.x, ry = mouse.y;
+      g.strokeStyle = 'rgba(233,228,218,.14)'; g.lineWidth = 1; g.beginPath(); g.arc(rx, ry, rr, 0, Math.PI * 2); g.stroke();
+      g.strokeStyle = 'rgba(233,228,218,.9)'; g.lineWidth = 1.6; g.beginPath(); g.arc(rx, ry, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * S.ring); g.stroke();
     }
     if (S.flare > 0) { g.fillStyle = `rgba(255,248,236,${S.flare * .9})`; g.fillRect(0, 0, W, H); }
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
 
-  // ---- holding: the ring fills in 1.6 s, empties if let go ----
+  // ---- observing: on a desktop, resting the cursor on the point fills a ring round it in 0.6 s; a tap on a phone, or
+  // Enter, is enough at once ----
   let canHold = false, holding = false, done = null;
-  const HOLD = 1.6;
+  const HOLD = .6, mouse = { x: 0, y: 0, on: false };
+  const near = () => Math.hypot(mouse.x - W / 2, mouse.y - H * S.py) < Math.max(60, Math.min(W, H) * .07);
   const tick = () => {
     if (!canHold) return;
-    S.ring = Math.max(0, Math.min(1, S.ring + (holding ? 1 : -1.6) * (1 / 60) / HOLD));
+    holding = mouse.on && near();
+    S.ring = Math.max(0, Math.min(1, S.ring + (holding ? 1 : -2) * (1 / 60) / HOLD));
     if (S.ring >= 1) { canHold = false; done && done(); return; }
     requestAnimationFrame(tick);
   };
-  const down = e => { if (e.target.id === 'skip') return; holding = true; };
-  const up = () => { holding = false; };
-  addEventListener('pointerdown', down); addEventListener('pointerup', up); addEventListener('pointercancel', up);
-  addEventListener('keydown', e => { if (e.code === 'Space' || e.code === 'Enter') { holding = true; e.preventDefault(); } });
-  addEventListener('keyup', e => { if (e.code === 'Space' || e.code === 'Enter') holding = false; });
+  const finish = () => { if (canHold) { S.ring = 1; canHold = false; done && done(); } };
+  addEventListener('pointermove', e => { if (e.pointerType === 'mouse') { mouse.x = e.clientX; mouse.y = e.clientY; mouse.on = true; } });
+  document.addEventListener('mouseleave', () => { mouse.on = false; });
+  addEventListener('pointerdown', e => { if (e.target.id !== 'skip' && e.pointerType !== 'mouse') finish(); });
+  addEventListener('keydown', e => { if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); finish(); } });
   const waitHold = () => new Promise(res => { done = res; canHold = true; requestAnimationFrame(tick); });
 
   $('skip').onclick = () => { skipping = true; $('cap').classList.remove('on'); $('skip').style.display = 'none'; };
@@ -205,6 +209,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     await wait(skipping ? 0 : 600);
     tween('lines', 1, 300); $('skip').style.display = 'none';
     $('title').classList.add('on'); await wait(1800);
+    $('hint').textContent = matchMedia('(hover: hover) and (pointer: fine)').matches ? 'rest on the point' : 'tap to observe';
     $('hint').classList.add('on');
     await waitHold();
     $('hint').classList.remove('on'); $('title').classList.remove('on');
