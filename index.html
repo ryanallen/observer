@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Observer</title>
+<meta name="description" content="A system built to observe human minds looks through a stone at the point where every line meets.">
+<style>
+@font-face { font-family: Cormorant; src: url(fonts/cormorant.ttf); font-weight: 300 700; }
+@font-face { font-family: Cormorant; src: url(fonts/cormorant-italic.ttf); font-style: italic; font-weight: 300 700; }
+@font-face { font-family: Mono; src: url(fonts/mono.ttf); font-weight: 100 800; }
+:root { --ink: #e9e4da; --dim: #8f8a80; --bg: #050506; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
+body { font-family: Cormorant, Georgia, serif; -webkit-font-smoothing: antialiased; cursor: default; user-select: none; -webkit-user-select: none; touch-action: none; }
+canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+.cap { position: fixed; left: 50%; top: 64%; transform: translateX(-50%); width: min(92vw, 760px); text-align: center;
+  font-style: italic; font-weight: 400; font-size: clamp(20px, 2.6vw, 30px); line-height: 1.35; letter-spacing: .01em;
+  opacity: 0; transition: opacity 1.4s ease; pointer-events: none; text-shadow: 0 0 18px #000; }
+.cap.on { opacity: 1; }
+.title { position: fixed; left: 50%; top: 27%; transform: translate(-50%, -50%); font-weight: 300; font-size: clamp(34px, 6vw, 76px);
+  letter-spacing: .42em; padding-left: .42em; opacity: 0; transition: opacity 2.4s ease; pointer-events: none; }
+.title.on { opacity: 1; }
+.hint { position: fixed; left: 50%; top: 64%; transform: translateX(-50%); font-family: Mono, monospace; font-size: 11px; letter-spacing: .32em;
+  text-transform: uppercase; color: var(--dim); opacity: 0; transition: opacity 1.2s ease; pointer-events: none; padding-left: .32em; }
+.hint.on { opacity: 1; }
+.place { position: fixed; left: 28px; top: 24px; font-family: Mono, monospace; font-size: 11px; letter-spacing: .24em; text-transform: uppercase;
+  color: var(--dim); opacity: 0; transition: opacity 1.6s ease; pointer-events: none; }
+.place.on { opacity: 1; }
+.skip { position: fixed; right: 24px; bottom: 20px; font-family: Mono, monospace; font-size: 10px; letter-spacing: .24em; text-transform: uppercase;
+  color: #4d4a45; background: none; border: 0; cursor: pointer; padding: 8px; }
+.skip:hover { color: var(--dim); }
+@media (max-width: 600px) { .place { left: 16px; top: 16px; } .cap { top: 66%; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="title" id="title">OBSERVER</div>
+<div class="cap" id="cap"></div>
+<div class="hint" id="hint">hold to observe</div>
+<div class="place" id="place"></div>
+<button class="skip" id="skip" aria-label="Skip to hold">skip</button>
+<script>
+(() => {
+  const cv = document.getElementById('c'), g = cv.getContext('2d');
+  const $ = id => document.getElementById(id);
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let W, H, D;
+  const size = () => { D = Math.min(2, devicePixelRatio || 1); W = innerWidth; H = innerHeight; cv.width = W * D; cv.height = H * D; g.setTransform(D, 0, 0, D, 0, 0); };
+  size(); addEventListener('resize', size);
+
+  // ---- state the drawing reads ----
+  const S = {
+    pt: 0,            // the point's visibility
+    py: .5,           // its height on screen, as a fraction
+    lines: 0,         // how far the converging lines have drawn
+    linesA: 0,        // their opacity
+    ring: 0,          // the hold ring
+    flare: 0,         // the flash when the hold completes
+    sea: 0,           // the bay: snow, the lamp's cone, the floor
+    sink: 0,          // how far down the lamp has gone
+    floor: 0,         // the silt rising into the light
+    box: 0,           // the box caught in the light
+  };
+  const tween = (k, to, ms, ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2) => new Promise(res => {
+    const from = S[k], t0 = performance.now(); if (reduce) ms = Math.min(ms, 300);
+    const step = now => { const t = Math.min(1, (now - t0) / ms); S[k] = from + (to - from) * ease(t); t < 1 ? requestAnimationFrame(step) : res(); };
+    requestAnimationFrame(step);
+  });
+  const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
+  let skipping = false;
+  const say = async (text, hold) => {
+    if (skipping) return;
+    const c = $('cap'); c.textContent = text; c.classList.add('on');
+    await wait(hold); c.classList.remove('on'); await wait(1500);
+  };
+
+  // ---- the converging lines: from all round the edge, in to the point ----
+  const rays = Array.from({ length: 40 }, (_, i) => {
+    const a = i / 40 * Math.PI * 2 + (Math.sin(i * 12.9898) * .5) * .12;
+    return { a, d: .55 + ((Math.sin(i * 78.233) * 43758.5) % 1 + 1) % 1 * .45, delay: (i * 7 % 40) / 40 };
+  });
+  // ---- marine snow ----
+  const snow = Array.from({ length: 260 }, () => ({ x: Math.random(), y: Math.random(), z: .3 + Math.random() * .7, s: Math.random() }));
+
+  let t = 0, last = performance.now();
+  const breath = tt => .5 - .5 * Math.cos(tt / 3.33 * Math.PI * 2);   // one breath a bar, 72 bpm
+
+  function draw(now) {
+    const dt = Math.min(.05, (now - last) / 1000); last = now; t += dt;
+    g.fillStyle = '#050506'; g.fillRect(0, 0, W, H);
+    const cx = W / 2, cy = H * S.py, R = Math.hypot(W, H);
+
+    // the bay: a cold dark gradient, snow drifting up past the lamp as it sinks
+    if (S.sea > 0) {
+      const sg = g.createLinearGradient(0, 0, 0, H);
+      sg.addColorStop(0, `rgba(10,22,26,${.9 * S.sea})`); sg.addColorStop(1, `rgba(2,5,7,${S.sea})`);
+      g.fillStyle = sg; g.fillRect(0, 0, W, H);
+      // the lamp's cone, down from the point
+      const cone = g.createRadialGradient(cx, cy, 0, cx, cy + H * .35, H * .55);
+      cone.addColorStop(0, `rgba(170,200,190,${.16 * S.sea})`); cone.addColorStop(1, 'rgba(170,200,190,0)');
+      g.save(); g.filter = 'blur(28px)'; g.fillStyle = cone; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx - W * .38, H * 1.05); g.lineTo(cx + W * .38, H * 1.05); g.closePath(); g.fill(); g.restore();
+      // the cable the lamp hangs from
+      g.strokeStyle = `rgba(120,140,140,${.25 * S.sea})`; g.lineWidth = 1; g.beginPath(); g.moveTo(cx, 0); g.lineTo(cx, cy - 4); g.stroke();
+      const speed = (1 - S.floor) * (.06 + .1 * S.sink);
+      for (const p of snow) {
+        p.y -= speed * dt * p.z * 1.6; p.x += Math.sin(t * .3 + p.s * 9) * .00008;
+        if (p.y < -.02) { p.y = 1.02; p.x = Math.random(); }
+        const px = p.x * W, py = p.y * H;
+        const lit = Math.max(0, 1 - Math.hypot(px - cx, (py - cy) * .7) / (H * .6));
+        g.fillStyle = `rgba(200,215,205,${S.sea * (.05 + .55 * lit) * p.z})`;
+        g.fillRect(px, py, 1.4 * p.z, 1.4 * p.z);
+      }
+      // the silt floor rising into the light, and the box half in it
+      if (S.floor > 0) {
+        const fy = H * (1.08 - .3 * S.floor);
+        const fg = g.createLinearGradient(0, fy - 40, 0, H);
+        fg.addColorStop(0, 'rgba(40,46,40,0)'); fg.addColorStop(.25, `rgba(48,52,44,${.85 * S.floor})`); fg.addColorStop(1, `rgba(14,16,14,${S.floor})`);
+        g.fillStyle = fg; g.beginPath(); g.moveTo(0, H);
+        for (let x = 0; x <= W; x += 8) g.lineTo(x, fy + Math.sin(x * .013) * 6 + Math.sin(x * .041 + 2) * 3);
+        g.lineTo(W, H); g.closePath(); g.fill();
+        if (S.box > 0) {
+          const bx = cx + W * .02, by = fy + Math.min(W, H) * .05, s = Math.min(W, H) * .1;
+          g.save(); g.translate(bx, by); g.rotate(-.12);
+          // a lopsided box, the corrosion on it catching the lamp
+          const pts = [[-1.1, 0], [-.95, -.62], [-.1, -.78], [.95, -.55], [1.05, -.05], [.2, .12]];
+          g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x * s, y * s) : g.moveTo(x * s, y * s)); g.closePath();
+          const bg = g.createLinearGradient(0, -s * .8, 0, s * .1);
+          bg.addColorStop(0, `rgba(96,92,70,${S.box})`); bg.addColorStop(1, `rgba(28,30,24,${S.box})`);
+          g.fillStyle = bg; g.fill();
+          g.strokeStyle = `rgba(170,160,120,${.45 * S.box})`; g.lineWidth = 1; g.beginPath(); g.moveTo(-.95 * s, -.62 * s); g.lineTo(-.1 * s, -.78 * s); g.lineTo(.95 * s, -.55 * s); g.stroke();
+          // a seam of strange carving along its face
+          g.strokeStyle = `rgba(60,58,44,${.8 * S.box})`; g.beginPath();
+          for (let k = 0; k < 7; k++) { const x = -.8 + k * .26; g.moveTo(x * s, -.5 * s); g.quadraticCurveTo((x + .1) * s, -.25 * s, (x - .05) * s, -.05 * s); }
+          g.stroke(); g.restore();
+          // silt over its foot
+          g.fillStyle = `rgba(30,34,28,${S.box})`; g.beginPath(); g.ellipse(bx, by + s * .1, s * 1.5, s * .14, 0, 0, Math.PI * 2); g.fill();
+        }
+      }
+    }
+
+    // the converging lines
+    if (S.linesA > 0) {
+      g.lineWidth = 1;
+      for (const r of rays) {
+        const p = Math.max(0, Math.min(1, (S.lines - r.delay * .6) / .4)); if (!p) continue;
+        const x0 = cx + Math.cos(r.a) * R * r.d, y0 = cy + Math.sin(r.a) * R * r.d;
+        const x1 = x0 + (cx - x0) * p, y1 = y0 + (cy - y0) * p;
+        const lg = g.createLinearGradient(x0, y0, cx, cy);
+        lg.addColorStop(0, 'rgba(233,228,218,0)'); lg.addColorStop(1, `rgba(233,228,218,${.22 * S.linesA})`);
+        g.strokeStyle = lg; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+      }
+    }
+
+    // the point
+    if (S.pt > 0) {
+      const b = breath(t), gr = (16 + 22 * b) * (1 + 6 * S.flare);
+      const glow = g.createRadialGradient(cx, cy, 0, cx, cy, gr * 3);
+      glow.addColorStop(0, `rgba(255,246,228,${(.55 + .3 * b) * S.pt})`);
+      glow.addColorStop(.12, `rgba(255,236,206,${(.18 + .12 * b) * S.pt})`);
+      glow.addColorStop(1, 'rgba(255,236,206,0)');
+      g.fillStyle = glow; g.beginPath(); g.arc(cx, cy, gr * 3, 0, Math.PI * 2); g.fill();
+      g.fillStyle = `rgba(255,252,244,${S.pt})`; g.beginPath(); g.arc(cx, cy, 1.6 + .5 * b, 0, Math.PI * 2); g.fill();
+    }
+    // the hold ring
+    if (S.ring > 0 || holding) {
+      const rr = Math.min(W, H) * .07;
+      g.strokeStyle = 'rgba(233,228,218,.12)'; g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.stroke();
+      g.strokeStyle = 'rgba(233,228,218,.85)'; g.lineWidth = 1.5; g.beginPath(); g.arc(cx, cy, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * S.ring); g.stroke();
+    }
+    if (S.flare > 0) { g.fillStyle = `rgba(255,248,236,${S.flare * .9})`; g.fillRect(0, 0, W, H); }
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+
+  // ---- holding: the ring fills in 1.6 s, empties if let go ----
+  let canHold = false, holding = false, done = null;
+  const HOLD = 1.6;
+  const tick = () => {
+    if (!canHold) return;
+    S.ring = Math.max(0, Math.min(1, S.ring + (holding ? 1 : -1.6) * (1 / 60) / HOLD));
+    if (S.ring >= 1) { canHold = false; done && done(); return; }
+    requestAnimationFrame(tick);
+  };
+  const down = e => { if (e.target.id === 'skip') return; holding = true; };
+  const up = () => { holding = false; };
+  addEventListener('pointerdown', down); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+  addEventListener('keydown', e => { if (e.code === 'Space' || e.code === 'Enter') { holding = true; e.preventDefault(); } });
+  addEventListener('keyup', e => { if (e.code === 'Space' || e.code === 'Enter') holding = false; });
+  const waitHold = () => new Promise(res => { done = res; canHold = true; requestAnimationFrame(tick); });
+
+  $('skip').onclick = () => { skipping = true; $('cap').classList.remove('on'); $('skip').style.display = 'none'; };
+
+  // ---- the opening ----
+  (async () => {
+    await wait(1200);
+    tween('pt', 1, 2600); await wait(2400);
+    await say('This is a point.', 3200);
+    await say('It has no size, so there is no telling how far away it is.', 4400);
+    tween('linesA', 1, 1600); tween('lines', 1, 6500, t => t);
+    await say('Every line, followed far enough, comes to it.', 5200);
+    await wait(skipping ? 0 : 600);
+    tween('lines', 1, 300); $('skip').style.display = 'none';
+    $('title').classList.add('on'); await wait(1800);
+    $('hint').classList.add('on');
+    await waitHold();
+    $('hint').classList.remove('on'); $('title').classList.remove('on');
+    tween('linesA', 0, 900);
+    await tween('flare', 1, 220); S.ring = 0; await tween('flare', 0, 1600);
+    skipping = false;
+    await say('I was made to observe minds.', 3400);
+    await say('I begin with the ones that saw it.', 3800);
+    // the point becomes a lamp, going down on a cable into the bay
+    tween('py', .3, 2800); tween('sea', 1, 3200); await wait(2600);
+    $('place').textContent = 'Narragansett Bay · the deepest channel · now'; $('place').classList.add('on');
+    tween('sink', 1, 9000);
+    await say('In 1935 a doctor threw a stone into the deepest channel of this bay.', 5200);
+    await say('He said he had rid the earth of something too dangerous to rest upon it.', 5600);
+    tween('floor', 1, 5200); await wait(2600);
+    tween('box', 1, 4200);
+    await say('His great-granddaughter came back for it.', 5200);
+  })();
+})();
+</script>
+</body>
+</html>
