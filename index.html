@@ -18,9 +18,6 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   font-style: italic; font-weight: 400; font-size: clamp(20px, 2.6vw, 30px); line-height: 1.35; letter-spacing: .01em;
   opacity: 0; transition: opacity 1.4s ease; pointer-events: none; text-shadow: 0 0 18px #000; }
 .cap.on { opacity: 1; }
-.hint { position: fixed; left: 50%; top: 64%; transform: translateX(-50%); font-family: Mono, monospace; font-size: 11px; letter-spacing: .32em;
-  text-transform: uppercase; color: var(--dim); opacity: 0; transition: opacity 1.2s ease; pointer-events: none; padding-left: .32em; }
-.hint.on { opacity: 1; }
 .place { position: fixed; left: 28px; top: 24px; font-family: Mono, monospace; font-size: 11px; letter-spacing: .24em; text-transform: uppercase;
   color: var(--dim); opacity: 0; transition: opacity 1.6s ease; pointer-events: none; }
 .place.on { opacity: 1; }
@@ -30,20 +27,19 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 .sound { position: fixed; left: 24px; bottom: 20px; font-family: Mono, monospace; font-size: 10px; letter-spacing: .24em; text-transform: uppercase;
   color: #6a665f; background: none; border: 0; cursor: pointer; padding: 8px; }
 .sound:hover { color: var(--ink); }
-.ask { position: fixed; left: 50%; bottom: 9%; transform: translateX(-50%); font-family: Mono, monospace; font-size: 11px; letter-spacing: .32em;
-  text-transform: uppercase; color: var(--dim); padding-left: .32em; opacity: 0; transition: opacity 1.2s ease; pointer-events: none; white-space: nowrap; }
-.ask.on { opacity: 1; }
+.tip { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); font-family: Mono, monospace; font-size: 10px; letter-spacing: .3em;
+  text-transform: uppercase; color: var(--dim); padding-left: .3em; opacity: 0; transition: opacity 1.6s ease; pointer-events: none; white-space: nowrap; }
+.tip.on { opacity: .55; }
 @media (max-width: 600px) { .place { left: 16px; top: 16px; } .cap { top: 66%; } }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div class="cap" id="cap"></div>
-<div class="hint" id="hint">rest on the point</div>
 <div class="place" id="place"></div>
 <button class="skip" id="skip" aria-label="Skip to hold">skip</button>
 <button class="sound" id="sound" aria-pressed="false">sound off</button>
-<div class="ask" id="ask">click anywhere for sound</div>
+<div class="tip" id="tip"></div>
 <script>
 (() => {
   const cv = document.getElementById('c'), g = cv.getContext('2d');
@@ -222,7 +218,6 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
           g.drawImage(titleCv, cx - titleW / 2, H * .27 - titleH / 2, titleW, titleH); g.restore();
         }
         g.strokeStyle = `rgba(255,246,228,${ea})`; eyePath(cx, cy, 4 + A * eo, 2 + B * eo); g.stroke();
-        g.strokeStyle = `rgba(255,246,228,${ea * .6})`; g.beginPath(); g.arc(cx, cy, 2 + B * eo * .42, 0, Math.PI * 2); g.stroke();
       }
       // the heartbeat, on each ping
       const n = Math.floor(t / 3.33); if (n !== lastBeat) { lastBeat = n; if (S.pt > .5) beat(); }
@@ -261,22 +256,26 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   $('sound').onclick = e => {
     e.stopPropagation();
     if (soundOn) { soundOn = false; } else startSound();
-    $('sound').textContent = soundOn ? 'sound on' : 'sound off'; $('sound').setAttribute('aria-pressed', soundOn); $('ask').classList.remove('on');
+    $('sound').textContent = soundOn ? 'sound on' : 'sound off'; $('sound').setAttribute('aria-pressed', soundOn); hideTip('sound');
   };
   // the first tap or key turns the sound on (a browser plays nothing before one)
   const firstGesture = e => {
     if (e.target && e.target.id === 'sound') return;
     removeEventListener('pointerdown', firstGesture); removeEventListener('keydown', firstGesture);
-    $('ask').classList.remove('on');
+    hideTip('sound');
     startSound().then(() => { $('sound').textContent = 'sound on'; $('sound').setAttribute('aria-pressed', true); });
   };
   addEventListener('pointerdown', firstGesture); addEventListener('keydown', firstGesture);
   $('skip').onclick = () => { skipping = true; $('cap').classList.remove('on'); $('skip').style.display = 'none'; };
 
+  // ---- tips: at the very bottom, faint, shown for a few seconds only when needed ----
+  let tipKey = null, tipTimer = 0;
+  const tip = (key, text, ms) => { clearTimeout(tipTimer); tipKey = key; $('tip').textContent = text; $('tip').classList.add('on'); tipTimer = setTimeout(() => hideTip(key), ms); };
+  const hideTip = key => { if (tipKey === key) { $('tip').classList.remove('on'); tipKey = null; } };
   // ---- the opening ----
   (async () => {
-    if (!matchMedia('(pointer: coarse)').matches) $('ask').classList.add('on');   // a browser plays no sound until a click
     await wait(1200);
+    if (!matchMedia('(pointer: coarse)').matches && !soundOn) tip('sound', 'click anywhere for sound', 5000);   // a browser plays no sound until a click
     tween('pt', 1, 2600); await wait(2400);
     await say('This is a point.', 3200);
     await say('It has no size, so there is no telling how far away it is.', 4400);
@@ -285,10 +284,12 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     await wait(skipping ? 0 : 600);
     tween('lines', 1, 300); $('skip').style.display = 'none';
     eyeT0 = Math.ceil(t / 3.33) * 3.33; S.eye = 1; S.titleA = 1; await wait((eyeT0 - t) * 1000 + 2400);
-    $('hint').textContent = matchMedia('(hover: hover) and (pointer: fine)').matches ? 'rest on the point' : 'tap to observe';
-    $('hint').classList.add('on');
-    await waitHold();
-    $('hint').classList.remove('on'); tween('titleA', 0, 900); tween('eye', 0, 900);
+    // the tip only if the point has not been observed after a while, and again now and then
+    const howTo = matchMedia('(hover: hover) and (pointer: fine)').matches ? 'rest the cursor on the point' : 'tap the point';
+    let observed = false;
+    (async () => { await wait(4000); while (!observed) { tip('observe', howTo, 4500); await wait(16000); } })();
+    await waitHold(); observed = true;
+    hideTip('observe'); tween('titleA', 0, 900); tween('eye', 0, 900);
     tween('linesA', 0, 900);
     await tween('flare', 1, 220); S.ring = 0; await tween('flare', 0, 1600);
     skipping = false;
