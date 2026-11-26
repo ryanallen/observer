@@ -62,7 +62,7 @@ P.1.1 to P.1.9 are the landing page (`index.html`).
 
 | # | Where | What happens | What you see | The Observer |
 |---|---|---|---|---|
-| P.1.1 | The point | From the first moment, the point: it fades up and is never gone. Every 3.3 seconds it brightens for an instant and sends out one thin ring that widens and fades: the ping. Each ping is a heartbeat, a low lub-dub. On a desktop, at the very bottom, faint, for 5 seconds: the sound tip. A click anywhere turns the sound on; a browser plays nothing before one. | The point, pinging. | Tip: “click anywhere for sound” |
+| P.1.1 | The point | From the first moment, the point: it fades up and is never gone. Every 3.3 seconds it brightens for an instant and sends out one thin ring that widens and fades: the ping. Each ping is a heartbeat, a low lub-dub. Under the point, one button. Its click is what lets a browser play sound, so the sound starts with it. In the corner, a speaker: a click mutes it, and the muted speaker shows an X. | The point, pinging; the button under it. | LOOK |
 | P.1.2 | The point | — | The point. | “This is a point.” |
 | P.1.3 | The point | — | The point. | “It has no size, so there is no telling how far away it is.” |
 | P.1.4 | The point | Forty faint lines draw in from every edge of the screen to the point. | The lines meeting at the point. | “Every line, followed far enough, comes to it.” |
