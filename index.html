@@ -123,6 +123,49 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     if (!synth && b) { b.currentTime = 0; b.play().catch(() => {}); return; }
     const now = ac.currentTime + .01; thump(now, 62, 38, .9); thump(now + .3, 56, 36, .55);   // lub, dub
   };
+  // ---- ice: as each line grows, the faint crackle of a crystal forming along it; as it reaches the point, one glass tink.
+  // All made here: noise grains for the crackle, a bell of inharmonic partials for the tink, both through one cold room. ----
+  let ice = null;
+  const iceBus = () => {
+    if (ice) return ice;
+    const out = ac.createDynamicsCompressor(); out.threshold.value = -18; out.ratio.value = 4; out.connect(ac.destination);
+    const dry = ac.createGain(); dry.gain.value = .8; dry.connect(out);
+    // a room: two seconds of decaying, darkening noise, a little different in each ear
+    const len = ac.sampleRate * 2.6, ir = ac.createBuffer(2, len, ac.sampleRate);
+    for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); let lp = 0;
+      for (let i = 0; i < len; i++) { const k = i / len; lp += (Math.random() * 2 - 1 - lp) * (.9 - .7 * k); d[i] = lp * Math.pow(1 - k, 3.2); } }
+    const rv = ac.createConvolver(); rv.buffer = ir; const wet = ac.createGain(); wet.gain.value = .55; rv.connect(wet).connect(out);
+    const noise = ac.createBuffer(1, ac.sampleRate, ac.sampleRate), nd = noise.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    return ice = { dry, rv, noise };
+  };
+  const send = (node, pan, wetAmt) => {
+    const pn = ac.createStereoPanner(); pn.pan.value = pan; node.connect(pn);
+    pn.connect(ice.dry); const w = ac.createGain(); w.gain.value = wetAmt; pn.connect(w).connect(ice.rv);
+  };
+  const crackle = pan => {      // a few milliseconds of bright noise, sometimes with a tiny high ring
+    if (!ac || !soundOn) return; iceBus(); const at = ac.currentTime + Math.random() * .02;
+    const src = ac.createBufferSource(); src.buffer = ice.noise; src.playbackRate.value = .8 + Math.random() * .6;
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 4500 + Math.random() * 6500; bp.Q.value = 6 + Math.random() * 10;
+    const gn = ac.createGain(), dur = .004 + Math.random() * .014, amp = .05 + Math.random() * .08;
+    gn.gain.setValueAtTime(0, at); gn.gain.linearRampToValueAtTime(amp, at + .001); gn.gain.exponentialRampToValueAtTime(.0001, at + dur);
+    src.connect(bp).connect(gn); send(gn, pan, .35); src.start(at, Math.random() * .9, dur + .01);
+    if (Math.random() < .18) {
+      const o = ac.createOscillator(), og = ac.createGain(), f = 5200 + Math.random() * 4200;
+      o.frequency.value = f; og.gain.setValueAtTime(0, at); og.gain.linearRampToValueAtTime(.012 + Math.random() * .014, at + .002);
+      og.gain.exponentialRampToValueAtTime(.0001, at + .05 + Math.random() * .08); o.connect(og); send(og, pan, .6); o.start(at); o.stop(at + .16);
+    }
+  };
+  // D major pentatonic, high: the film's key
+  const ICE = [1760, 1976, 2349, 2637, 2960, 3520, 3951, 4699];
+  const tink = (pan, k) => {   // glass: partials at inharmonic ratios, the higher ones dying first
+    if (!ac || !soundOn) return; iceBus(); const at = ac.currentTime + .005, f = ICE[k % ICE.length] * (1 + (Math.random() - .5) * .006);
+    [[1, 1, 1.6], [2.32, .42, .9], [4.25, .22, .45], [6.63, .12, .25]].forEach(([r, a, d]) => {
+      const o = ac.createOscillator(), gn = ac.createGain(); o.frequency.value = f * r;
+      gn.gain.setValueAtTime(0, at); gn.gain.linearRampToValueAtTime(.055 * a, at + .0025); gn.gain.exponentialRampToValueAtTime(.00008, at + d);
+      o.connect(gn); send(gn, pan, .5); o.start(at); o.stop(at + d + .05);
+    });
+  };
   // ---- marine snow ----
   const snow = Array.from({ length: 260 }, () => ({ x: Math.random(), y: Math.random(), z: .3 + Math.random() * .7, s: Math.random() }));
 
@@ -185,7 +228,12 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     if (S.linesA > 0) {
       g.lineWidth = 1;
       for (const r of rays) {
-        const p = Math.max(0, Math.min(1, (S.lines - r.delay * .6) / .4)); if (!p) continue;
+        const p = Math.max(0, Math.min(1, (S.lines - r.delay * .6) / .4));
+        // the sound of it: crackle while it grows, a tink when it reaches the point
+        const pan = Math.max(-.9, Math.min(.9, Math.cos(r.a) * .9));
+        if (p > 0 && p < 1 && Math.random() < dt * 6 && !skipping) crackle(pan);
+        if (p >= 1 && !r.landed) { r.landed = true; if (!skipping) tink(pan, rays.indexOf(r) * 3); }
+        if (!p) continue;
         const x0 = cx + Math.cos(r.a) * R * r.d, y0 = cy + Math.sin(r.a) * R * r.d;
         const x1 = x0 + (cx - x0) * p, y1 = y0 + (cy - y0) * p;
         const lg = g.createLinearGradient(x0, y0, cx, cy);
