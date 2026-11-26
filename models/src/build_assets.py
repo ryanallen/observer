@@ -1,0 +1,404 @@
+"""Observer procedural GLBs. Blender Z-up; glTF export is Y-up.
+Run: blender -b -P models/src/build_assets.py -- boat|box|buoy|seabed
+"""
+import bpy, math, os, random, sys
+from mathutils import Vector
+random.seed(17)
+ROOT=os.path.abspath(os.path.join(os.path.dirname(__file__),'..'))
+NAME=sys.argv[-1] if sys.argv[-1] in ('boat','box','buoy','seabed') else 'boat'
+bpy.ops.object.select_all(action='SELECT'); bpy.ops.object.delete(use_global=False)
+
+def mat(n,c,m=0,r=.6,e=None):
+ a=bpy.data.materials.new(n);a.diffuse_color=(*c,1);a.use_nodes=True;p=a.node_tree.nodes.get('Principled BSDF')
+ p.inputs['Base Color'].default_value=(*c,1);p.inputs['Metallic'].default_value=m;p.inputs['Roughness'].default_value=r
+ if e:p.inputs['Emission Color'].default_value=(*e,1);p.inputs['Emission Strength'].default_value=3
+ return a
+white=mat('hull warm white',(.69,.73,.72),.15,.5);red=mat('antifouling red',(.22,.03,.02),.1,.75)
+navy=mat('survey hull midnight blue',(.018,.053,.082),.27,.51)
+navy_hull=mat('survey hull weathered vertex paint',(.018,.053,.082),.27,.56)
+vc=navy_hull.node_tree.nodes.new('ShaderNodeVertexColor');vc.layer_name='PaintVariation'
+navy_hull.node_tree.links.new(vc.outputs['Color'],navy_hull.node_tree.nodes.get('Principled BSDF').inputs['Base Color'])
+stripe=mat('dark boot top',(.019,.035,.042),.3,.55);deck=mat('non slip aft deck',(.07,.12,.13),.2,.82)
+steel=mat('galvanized steel',(.38,.44,.43),.75,.46);dark=mat('black rubber iron',(.018,.025,.028),.3,.77)
+orange=mat('safety orange',(.85,.16,.023),.25,.48);glass=mat('window_lit',(.40,.27,.14),.1,.20,(1,.57,.25))
+buoyred=mat('channel buoy red',(.48,.025,.018),.22,.59)
+lamp=mat('warm worklamp',(.95,.73,.32),.05,.23,(1,.69,.28))
+navr=mat('nav_red',(.9,.015,.01),.1,.2,(1,.015,.006));navg=mat('nav_green',(.02,.9,.12),.1,.2,(.02,1,.09));navw=mat('mast_white',(.95,.9,.75),.1,.2,(1,.9,.7))
+bronze=mat('yellow tarnished bronze',(.36,.27,.09),.83,.68);patina=mat('verdigris',(.065,.23,.17),.4,.9)
+silt=mat('silt crust',(.17,.19,.16),.1,.93);rust=mat('rusted iron',(.31,.087,.026),.5,.88);bottle=mat('cloudy bottle green',(.10,.23,.16),.1,.39)
+crate=mat('blue plastic deck crate',(.055,.18,.24),.02,.76)
+
+def mesh(n,v,f,m):
+ d=bpy.data.meshes.new(n);d.from_pydata(v,[],f);d.update();o=bpy.data.objects.new(n,d);bpy.context.collection.objects.link(o);d.materials.append(m)
+ for p in d.polygons:p.use_smooth=True
+ return o
+def cube(n,loc,dim,m,bevel=0):
+ bpy.ops.mesh.primitive_cube_add(size=1,location=loc);o=bpy.context.object;o.name=n;o.dimensions=dim;bpy.ops.object.transform_apply(location=False,rotation=False,scale=True);o.data.materials.append(m)
+ if bevel:b=o.modifiers.new('fabricated corners','BEVEL');b.width=bevel;b.segments=2;o.modifiers.new('weighted normal','WEIGHTED_NORMAL')
+ return o
+def cyl(n,loc,r,d,m,seg=16,rot=None):
+ bpy.ops.mesh.primitive_cylinder_add(vertices=seg,radius=r,depth=d,location=loc);o=bpy.context.object;o.name=n;o.data.materials.append(m)
+ if rot:o.rotation_euler=rot
+ return o
+def ball(n,loc,sc,m,seg=12):
+ bpy.ops.mesh.primitive_uv_sphere_add(segments=seg,ring_count=8,location=loc);o=bpy.context.object;o.name=n;o.scale=sc;o.data.materials.append(m);return o
+def rod(n,a,b,r,m,seg=10):
+ a=Vector(a);b=Vector(b);d=b-a;o=cyl(n,(a+b)*.5,r,d.length,m,seg);o.rotation_euler=d.to_track_quat('Z','Y').to_euler();return o
+def ring(n,loc,r,t,m,rot=None,seg=20):
+ bpy.ops.mesh.primitive_torus_add(major_segments=seg,minor_segments=6,location=loc,major_radius=r,minor_radius=t)
+ o=bpy.context.object;o.name=n;o.data.materials.append(m)
+ if rot:o.rotation_euler=rot
+ return o
+
+def boat():
+ # +Y in Blender becomes -Z in the GLB, toward the bow.
+ coarse=[(-7,.68,.82,.84),(-6.4,1.36,1.53,.91),(-4.8,1.70,1.94,.99),(-2,1.80,2.04,1.06),(1,1.67,1.91,1.14),(3.6,1.40,1.67,1.29),(5.5,.90,1.12,1.53),(6.7,.19,.27,1.76),(6.95,.016,.025,1.86)]
+ def cat(a,b,c,d,t):return .5*((2*b)+(-a+c)*t+(2*a-5*b+4*c-d)*t*t+(-a+3*b-3*c+d)*t*t*t)
+ stations=[]
+ for i in range(len(coarse)-1):
+  for step in range(4):
+   t=step/4;stations.append(tuple(cat(coarse[max(0,i-1)][k],coarse[i][k],coarse[i+1][k],coarse[min(len(coarse)-1,i+2)][k],t) for k in range(4)))
+ stations.append(coarse[-1])
+ bands=[(-1.1,.72),(-.55,.82),(-.13,1),(-.045,1.02),(.10,1.045),('mid',1.085),('sheer',1)]
+ for side in (-1,1):
+  for k,m in enumerate((red,red,red,stripe,navy_hull,navy_hull)):
+   v=[]
+   for y,ch,w,h in stations:
+    for j in (k,k+1):
+     z,f=bands[j];v.append((side*w*f,y,h if z=='sheer' else h*.57 if z=='mid' else z))
+   faces=[(2*i,2*i+1,2*i+3,2*i+2) for i in range(len(stations)-1)]
+   if side==1:faces=[tuple(reversed(f)) for f in faces]
+   o=mesh('hull band',v,faces,m)
+   if m==navy_hull:
+    colors=o.data.vertex_colors.new(name='PaintVariation')
+    for poly in o.data.polygons:
+     for li in poly.loop_indices:
+      co=o.data.vertices[o.data.loops[li].vertex_index].co
+      weather=.82+.16*random.random();stain=any(abs(co.y-y)<.16 for y in (-5.8,-4.5,-3.2,-1.9,.7)) and co.z<.6
+      colors.data[li].color=(.10,.038,.017,1) if stain else (.018*weather,.053*weather,.082*weather,1)
+   so=o.modifiers.new('steel plate','SOLIDIFY');so.thickness=.04
+ v=[(-w*.72,y,-1.1) for y,ch,w,h in stations]+[(w*.72,y,-1.1) for y,ch,w,h in reversed(stations)]
+ mesh('bottom plating',v,[tuple(range(len(v)))],red)
+ v=[(-w,y,h) for y,ch,w,h in stations]+[(w,y,h) for y,ch,w,h in reversed(stations)]
+ mesh('working deck',v,[tuple(range(len(v)-1,-1,-1))],deck)
+ mesh('closed steel transom',[(-.59,-7,-1.1),(.59,-7,-1.1),(.82,-7,.84),(-.82,-7,.84)],[(0,1,2,3)],navy)
+ # Continuous rubbing strake follows the curved sheer, with forward bulwarks.
+ for side in (-1,1):
+  for a,b in zip(stations[:-1],stations[1:]):
+   y0,ch0,w0,h0=a;y1,ch1,w1,h1=b
+   rod('black rubbing strake',(side*w0,y0,h0-.10),(side*w1,y1,h1-.10),.048,dark,8)
+  forward=[s for s in stations if s[0]>=1.0]
+  for a,b in zip(forward[:-1],forward[1:]):
+   y0,ch0,w0,h0=a;y1,ch1,w1,h1=b
+   mesh('forward bulwark',[(side*w0,y0,h0),(side*w1,y1,h1),(side*w1*.99,y1,h1+.44),(side*w0*.99,y0,h0+.44)],[(0,1,2,3)] if side==1 else [(3,2,1,0)],navy)
+  for y in (1.8,2.8,3.8,4.8):
+   s=min(stations,key=lambda q:abs(q[0]-y));sy,ch,w,h=s
+   cube('bulwark scupper',(side*(w*1.004),sy,h+.09),(.017,.24,.085),dark,.01)
+ # Wheelhouse, raked forward glazing, and roof overhang.
+ cube('forward wheelhouse',(0,2.82,1.79),(2.65,3.70,1.45),white,.07)
+ cube('overhanging roof',(0,2.8,3.02),(3.08,4.13,.18),white,.10)
+ for x in (-.83,0,.83):cube('raked windscreen',(x,4.705,2.47),(.72,.035,.66),glass,.014).rotation_euler[0]=math.radians(12)
+ for side in (-1,1):
+  o=cube('wrapped raked corner window',(side*1.24,4.52,2.47),(.34,.035,.61),glass,.01)
+  o.rotation_euler=(math.radians(12),0,side*math.radians(42))
+ for x in (-1.33,1.33):
+  for y in (1.73,2.64,3.54):cube('side window',(x,y,2.47),(.035,.68,.60),glass,.009)
+ cube('aft cabin door',(0,.93,1.94),(.75,.07,1.3),white,.025)
+ ring('door porthole frame',(0,.877,2.28),.16,.022,steel,(math.pi/2,0,0),24)
+ cyl('door porthole glass',(0,.870,2.28),.14,.018,glass,24,(math.pi/2,0,0))
+ ball('door handle',(.26,.873,1.82),(.035,.02,.03),steel,10)
+ # Searchlight, roof safety rails, ladder and raft canister.
+ cyl('roof searchlight',(0,4.35,3.31),.22,.33,steel,20,(math.pi/2,0,0))
+ cyl('searchlight lens',(0,4.54,3.31),.195,.028,lamp,20,(math.pi/2,0,0))
+ for x in (-1.37,1.37):
+  for y in (1.13,2.72,4.35):rod('roof rail upright',(x,y,3.10),(x,y,3.51),.021,steel,8)
+  rod('roof handrail',(x,1.13,3.51),(x,4.35,3.51),.024,steel,8)
+ for x in (-1.1,-.65):rod('roof access ladder rail',(x,.67,1.12),(x,.67,3.15),.025,steel,8)
+ for z in [1.27+i*.25 for i in range(8)]:rod('ladder rung',(-1.1,.67,z),(-.65,.67,z),.018,steel,8)
+ cyl('life raft canister',(.78,2.0,3.29),.26,1.09,white,20,(0,math.pi/2,0))
+ for x in (.31,1.24):ring('raft lash', (x,2.0,3.29),.27,.013,dark,(0,math.pi/2,0),20)
+ for x in (-1.62,1.62):
+  for y in (-5.8,-4.5,-3.2,-1.9,-.6,.7):rod('rail stanchion',(x,y,1.06),(x,y,1.83),.026,steel,8)
+  for z,r in ((1.83,.03),(1.48,.018)):rod('side rail',(x,-5.8,z),(x,.7,z),r,steel,8)
+  cube('deck locker',(x*.91,-1.46,1.28),(.42,1.18,.35),white,.035)
+  for y in (-5.55,5):
+   cyl('bollard',(x*.72,y,1.23),.10,.28,steel,12);rod('bollard crossbar',(x*.72-.18,y,1.36),(x*.72+.18,y,1.36),.045,steel)
+  for y in (-4.7,-2.5,.1):ring('tyre fender',(x*1.03,y,.54),.34,.105,dark,(0,math.pi/2,0))
+ # Parallel legs stand on the transom corners and lean aft by ~15 degrees.
+ for x in (-.71,.71):
+  rod('straight safety orange A frame leg',(x,-6.87,1.0),(x,-7.74,4.26),.103,orange,16)
+  rod('hydraulic ram barrel',(x*1.25,-5.25,1.15),(x,-7.27,2.77),.072,dark,16)
+  rod('chromed hydraulic piston',(x,-7.27,2.77),(x,-7.39,3.04),.045,steel,14)
+  ball('ram hinge',(x*1.25,-5.25,1.15),(.13,.13,.13),steel,12)
+  ball('ram hinge',(x,-7.39,3.04),(.10,.10,.10),steel,12)
+ rod('horizontal A frame crossbeam',(-.78,-7.74,4.26),(.78,-7.74,4.26),.115,orange,16)
+ rod('sheave hanger',(0,-7.74,4.26),(0,-7.74,4.05),.06,steel)
+ cyl('sheave cheeks',(0,-7.74,3.96),.23,.27,steel,24,(0,math.pi/2,0))
+ cyl('sheave wheel',(0,-7.74,3.96),.16,.30,dark,24,(0,math.pi/2,0))
+ anchor=bpy.data.objects.new('sheave',None);bpy.context.collection.objects.link(anchor);anchor.location=(0,-7.78,3.76)
+ for x in (-.47,.47):
+  cube('flood_lamp',(x,-7.79,4.15),(.28,.12,.17),lamp,.025)
+  cube('floodlamp housing',(x,-7.70,4.15),(.32,.20,.21),dark,.02)
+ for x in (-.40,.40):cyl('winch flange',(x,-3.3,1.52),.40,.065,steel,20,(0,math.pi/2,0))
+ cyl('winch drum',(0,-3.3,1.52),.31,.75,dark,20,(0,math.pi/2,0))
+ for i in range(11):ring('wound steel cable',(-.29+i*.058,-3.3,1.52),.323,.013,steel,(0,math.pi/2,0),16)
+ cube('hydraulic winch motor',(.68,-3.3,1.4),(.49,.53,.45),steel,.04)
+ cube('sample table',(0,-5.52,1.20),(1.20,.48,.10),steel,.025)
+ # Compact hydraulic crane, hose reel, line coils and strapped equipment crates.
+ cyl('crane swivel pedestal',(1.13,-4.57,1.36),.22,.48,steel,20)
+ rod('crane upright',(1.13,-4.57,1.56),(1.13,-4.57,2.78),.105,orange,16)
+ rod('crane knuckle',(1.13,-4.57,2.78),(.63,-5.47,3.20),.085,orange,14)
+ rod('crane lifting tip',(.63,-5.47,3.20),(.50,-5.93,3.15),.063,orange,12)
+ rod('crane ram',(1.15,-4.60,1.86),(.82,-5.08,2.97),.039,steel,12)
+ rod('crane hook cable',(.50,-5.93,3.15),(.50,-5.93,2.64),.009,dark,8)
+ ball('crane hook',(.50,-5.93,2.61),(.065,.06,.075),steel,12)
+ for x,y in ((-.90,-2.23),(-.85,-5.15)):
+  for i in range(3):ring('coiled deck line',(x,y,1.10+i*.020),.20-i*.03,.013,steel,seg=24)
+ for x,y in ((-.94,-3.8),(.80,-1.90)):
+  cube('plastic sample crate',(x,y,1.32),(.46,.55,.37),crate,.025)
+  for j in (-.17,.17):rod('crate molded rib',(x+j,y-.26,1.48),(x+j,y+.26,1.48),.015,steel,8)
+ for x in (-.24,.24):cyl('hose reel flange',(x,-2.15,1.43),.24,.04,steel,18,(0,math.pi/2,0))
+ cyl('hose reel core',(0,-2.15,1.43),.16,.48,dark,16,(0,math.pi/2,0))
+ for i in range(6):ring('hose winding',(-.17+i*.065,-2.15,1.43),.18,.018,dark,(0,math.pi/2,0),18)
+ # Small nonskid weld beads and raised plate fasteners, visible in grazing light.
+ for y in [(-5.8+i*.30) for i in range(20)]:
+  h=min(stations,key=lambda q:abs(q[0]-y))[3]
+  for x in (-1.2,-.65,.65,1.2):cube('deck tread',(x,y,h+.014),(.055,.10,.012),steel,.004)
+ for side in (-1,1):
+  for y,ch,w,h in stations[:-1]:
+   for z in (.30,.73):
+    ball('hull plate fastener',(side*w*1.072,y,z),(.013,.013,.013),steel,8)
+ ring('life ring',(-1.50,1.36,2.05),.28,.08,orange,(0,math.pi/2,0))
+ rod('mast',(0,3.12,3.05),(0,3.12,5.19),.065,steel)
+ cyl('radar dome',(0,3.12,4.47),.32,.18,white,20);ball('radar cover',(0,3.12,4.55),(.32,.32,.11),white)
+ for x in (-.26,.26):rod('radio whip',(x,3.12,4.7),(x*1.22,3.12,5.75),.012,steel,8)
+ ball('mast_white',(0,3.12,5.2),(.08,.08,.08),navw)
+ ball('nav_red',(-1.56,3.54,2.60),(.08,.08,.08),navr)
+ ball('nav_green',(1.56,3.54,2.60),(.08,.08,.08),navg)
+ for x in (-1.15,1.15):
+  cube('aft work light',(x,.69,2.91),(.20,.12,.17),lamp,.018)
+  cube('gantry light',(x,-6.48,3.15),(.19,.14,.16),lamp,.018)
+
+def box():
+ def shell(n,lo,hi,z0,z1,m):
+  v=[(x,y,z0) for x,y in lo]+[(x,y,z1) for x,y in hi]
+  o=mesh(n,v,[(3,2,1,0)]+[(i,(i+1)%4,(i+1)%4+4,i+4) for i in range(4)]+[(4,5,6,7)],m)
+  b=o.modifiers.new('rounded eroded edges','BEVEL');b.width=.007;b.segments=2;o.modifiers.new('weighted normals','WEIGHTED_NORMAL')
+ base=[(-.22,-.18),(.19,-.185),(.215,.16),(-.20,.18)]
+ middle=[(-.219,-.188),(.21,-.18),(.22,.17),(-.21,.182)]
+ lid=[(-.225,-.19),(.218,-.184),(.227,.18),(-.205,.19)]
+ top=[(-.198,-.17),(.20,-.175),(.215,.158),(-.2,.173)]
+ shell('asymmetric bronze casket',base,middle,0,.17,bronze)
+ shell('sealed raised lid',lid,top,.165,.225,bronze)
+ for i in range(4):
+  a=lid[i];b=lid[(i+1)%4];rod('lid border',(a[0],a[1],.204),(b[0],b[1],.204),.006,patina,7)
+ for n,(cx,cy,s) in enumerate([(-.09,.03,.095),(.06,-.06,.076),(.075,.095,.051)]):
+  ball('monster body',(cx,cy,.228),(s*.42,s*.75,.012),bronze)
+  ball('distorted head',(cx+s*.18,cy+s*.7,.236),(s*.40,s*.32,.014),bronze)
+  for j in range(5):
+   y=cy-s*.5+j*s*.21;rod('relief ribs',(cx-s*.35,y,.235),(cx+s*.37,y+s*.10,.236),.0035,bronze,6)
+  for j in (-1,1):
+   rod('twisted relief limb',(cx+j*s*.27,cy,.237),(cx+j*s*.8,cy-s*.6,.229),.006,bronze,6)
+   ball('eye socket',(cx+s*.18+j*s*.13,cy+s*.77,.245),(.005,.005,.003),dark,8)
+ for i in range(55):
+  x=random.uniform(-.19,.19);y=random.uniform(-.16,.16);r=random.uniform(.003,.011)
+  ball('verdigris and silt crust',(x,y,.228),(r,r*.75,r*.20),patina if i%4 else silt,8)
+ for side in (-1,1):
+  for i in range(12):
+   ball('side corrosion',(side*.211,random.uniform(-.15,.15),random.uniform(.035,.15)),(.004,.013,.009),patina,8)
+ for i in range(5):
+  x=-.17+i*.083;rod('strange lock cuts',(x,-.188,.06),(x+.027,-.188,.12),.004,patina,6)
+
+def box_v2():
+ # Five unequal corners; each upper vertex shifts differently so every wall leans.
+ lo=[(-.224,-.143),(.124,-.182),(.226,-.093),(.183,.144),(-.170,.166)]
+ hi=[(-.207,-.163),(.145,-.155),(.219,-.078),(.160,.159),(-.193,.143)]
+ rim=[(-.238,-.175),(.155,-.190),(.247,-.100),(.206,.174),(-.208,.184)]
+ tarnish=mat('tarnished yellow bronze #8a7a3c',(.258,.215,.076),.8,.55)
+ verd=mat('verdigris in recesses #3f7d6a',(.052,.17,.124),0,.89)
+ mud=mat('brown lower silt crust',(.13,.090,.045),.07,.94)
+ pits=mat('black oxidized pits',(.028,.032,.025),.2,.87)
+ def pent(n,a,b,z0,z1,ma):
+  v=[(x,y,z0) for x,y in a]+[(x,y,z1) for x,y in b]
+  f=[tuple(range(4,-1,-1))]+[(i,(i+1)%5,(i+1)%5+5,i+5) for i in range(5)]+[tuple(range(5,10))]
+  o=mesh(n,v,f,ma);q=o.modifiers.new('worn cast edge','BEVEL');q.width=.004;q.segments=2;o.modifiers.new('cast bronze normals','WEIGHTED_NORMAL')
+ pent('five sided leaning bronze shell',lo,hi,0,.174,tarnish)
+ # The lower third is a separate uneven mud crust rather than a bright outline.
+ lowmud=[(x*.997,y*.998) for x,y in lo]
+ topmud=[(x*.985+random.uniform(-.006,.006),y*.99+random.uniform(-.005,.005)) for x,y in hi]
+ pent('adhered silt below tide line',lowmud,topmud,.003,.055,mud)
+ pent('lopsided overhanging lid skirt',rim,[(x*.98,y*.98) for x,y in rim],.171,.215,tarnish)
+ # Sample a sculpted height field: mottled cells, tangled bodies and serpentine
+ # ribbon borders. The 512px derivatives become the embedded tangent normal map.
+ seeds=[(random.uniform(-1,1),random.uniform(-1,1)) for _ in range(47)]
+ def relief(x,y):
+  # x,y are the planar UV domain mapped to [-1,1].
+  near=min((x-sx)**2+(y-sy)**2 for sx,sy in seeds)
+  cellular=math.exp(-near*65)
+  noise=.5*math.sin(31*x+3*math.sin(19*y))*math.sin(27*y+4*math.cos(13*x))
+  ridge=0
+  for cx,cy,s in ((-.44,.25,.33),(.30,-.29,.29),(.31,.35,.24)):
+   dx=(x-cx)/s;dy=(y-cy)/s
+   torso=math.exp(-((math.sqrt(dx*dx*.7+dy*dy*1.5)-.78)/.13)**2)
+   head=math.exp(-(((dx-.35)**2+(dy-.75)**2)/.12))
+   coils=math.exp(-((dy-.38*math.sin(5*dx+cy*4))/.095)**2)*math.exp(-(dx/1.1)**4)
+   horns=math.exp(-((dy-(1.12-.8*abs(dx-.3)))/.09)**2)*math.exp(-((dx-.3)/.65)**4)
+   ridge+=.55*torso+.55*head+.28*coils+.22*horns
+  border=math.exp(-((min(1-abs(x),1-abs(y))-.11)/.035)**2)
+  twist=math.sin(34*x+11*math.sin(7*y))*math.sin(28*y+8*math.sin(5*x))
+  return .015*ridge+.006*border+.0025*cellular+.0017*noise+.0007*twist
+ # Texture pixels carry corrosion where relief falls away; bronze stays in peaks.
+ N=512;heights=[0.0]*(N*N)
+ for j in range(N):
+  y=2*j/(N-1)-1
+  for i in range(N):heights[j*N+i]=relief(2*i/(N-1)-1,y)
+ rgba=[];normal=[]
+ for j in range(N):
+  for i in range(N):
+   idx=j*N+i;h=heights[idx]
+   z=(math.sin(i*.051+j*.077)+math.sin(i*.019-j*.033))*.5
+   cavity=max(0,min(1,(.006-h)*72+.20*z))
+   crust=max(0,min(.38,(math.sin(i*.11+j*.09)+1)*.12))
+   bronze_color=(.31,.255,.105);green=(.052,.17,.124)
+   rgba.extend((bronze_color[0]*(1-cavity)+green[0]*cavity,
+                bronze_color[1]*(1-cavity)+green[1]*cavity,
+                bronze_color[2]*(1-cavity)+green[2]*cavity,1))
+   il=max(i-1,0);ir=min(i+1,N-1);jb=max(j-1,0);jt=min(j+1,N-1)
+   dx=(heights[j*N+ir]-heights[j*N+il])*N*.9
+   dy=(heights[jt*N+i]-heights[jb*N+i])*N*.9
+   nx,ny,nz=-dx,-dy,1;length=math.sqrt(nx*nx+ny*ny+nz*nz)
+   normal.extend(((nx/length+1)*.5,(ny/length+1)*.5,(nz/length+1)*.5,1))
+ def image(n,pixels,space):
+  im=bpy.data.images.new(n,width=N,height=N,alpha=True);im.pixels.foreach_set(pixels);im.colorspace_settings.name=space;im.pack();return im
+ albedo=image('casket cast bronze corrosion 512',rgba,'sRGB')
+ nmap=image('casket sculpted relief normal 512',normal,'Non-Color')
+ sculpt=mat('antique cast lid with baked relief',(.31,.255,.105),.8,.55)
+ nt=sculpt.node_tree;pr=nt.nodes.get('Principled BSDF')
+ tex=nt.nodes.new('ShaderNodeTexImage');tex.image=albedo;tex.label='512px cavity and bronze'
+ nt.links.new(tex.outputs['Color'],pr.inputs['Base Color'])
+ texn=nt.nodes.new('ShaderNodeTexImage');texn.image=nmap;texn.label='512px sculpted tangent normal'
+ nm=nt.nodes.new('ShaderNodeNormalMap');nm.inputs['Strength'].default_value=.8
+ nt.links.new(texn.outputs['Color'],nm.inputs['Color']);nt.links.new(nm.outputs['Normal'],pr.inputs['Normal'])
+ # Circular radial tessellation follows the irregular pentagonal perimeter.
+ count=160;radial=43;edge=[]
+ for k in range(5):
+  a=Vector(rim[k]);b=Vector(rim[(k+1)%5])
+  for t in range(count//5):edge.append(a.lerp(b,t/(count//5)))
+ v=[(0,0,.248+relief(0,0))];uv=[(.5,.5)]
+ for r in range(1,radial+1):
+  t=r/radial
+  for p in edge:
+   x=p.x*t;y=p.y*t;u=(x+.26)/.52;vv=(y+.20)/.40
+   v.append((x,y,.215+.033*(1-t*t)+relief(2*u-1,2*vv-1)*.58))
+   uv.append((u,vv))
+ f=[]
+ for k in range(count):f.append((0,1+k,1+(k+1)%count))
+ for r in range(1,radial):
+  a=1+(r-1)*count;b=1+r*count
+  for k in range(count):f.extend(((a+k,b+k,b+(k+1)%count),(a+k,b+(k+1)%count,a+(k+1)%count)))
+ o=mesh('domed sculptural lid relief',v,f,sculpt)
+ layer=o.data.uv_layers.new(name='Relief UV')
+ for poly in o.data.polygons:
+  for li in poly.loop_indices:layer.data[li].uv=uv[o.data.loops[li].vertex_index]
+ # Deep perimeter ribbon border and side panels (cast ridges, not loose blobs).
+ for k in range(5):
+  a=Vector(rim[k]);b=Vector(rim[(k+1)%5]);a2=Vector(hi[k]);b2=Vector(hi[(k+1)%5])
+  rod('rope and ribbon cast border',(a.x*.95,a.y*.95,.228),(b.x*.95,b.y*.95,.228),.0055,tarnish,8)
+  rod('low side border',(a2.x,a2.y,.077),(b2.x,b2.y,.077),.0045,verd,8)
+  for q in range(1,8):
+   t=q/8;p=a2.lerp(b2,t);r=.007*(1+math.sin(q*2.3))
+   ball('side snarling cast knot',(p.x*1.009,p.y*1.009,.115+math.sin(q*2)*.012),(r,r,.012),tarnish,8)
+ # Three hinge barrels and their pins along the uneven rear edge.
+ a=Vector(hi[3]);b=Vector(hi[4])
+ for q in (.22,.5,.78):
+  p=a.lerp(b,q);cyl('bronze hinge knuckle',(p.x,p.y+.020,.188),.023,.055,tarnish,12,(0,math.pi/2,0))
+ rod('continuous hinge pin',(a.x,a.y+.018,.188),(b.x,b.y+.018,.188),.008,dark,8)
+ cube('old hasp plate',(0,-.177,.123),(.058,.017,.095),tarnish,.009)
+ ring('hasp loop',(0,-.188,.084),.024,.006,verd,(math.pi/2,0,0),16)
+ for q in range(15):
+  k=random.randrange(5);a=Vector(lo[k]);b=Vector(lo[(k+1)%5]);p=a.lerp(b,random.uniform(.1,.9))
+  ring('barnacle scar pit',(p.x*1.008,p.y*1.008,random.uniform(.023,.068)),.009,.0028,pits,seg=10)
+
+def buoy():
+ cyl('red buoy hull',(0,0,-.06),.78,.72,buoyred,24)
+ ball('conical float top',(0,0,.33),(.73,.73,.22),buoyred,20)
+ ring('rubber bumper',(0,0,-.28),.74,.07,dark)
+ for z,r in ((.51,.49),(1.50,.25),(2.46,.09)):ring('cage hoop',(0,0,z),r,.035,buoyred)
+ for i in range(4):
+  a=i*math.pi/2+math.pi/4
+  rod('bell cage tower leg',(.51*math.cos(a),.51*math.sin(a),.48),(.08*math.cos(a),.08*math.sin(a),2.45),.032,buoyred,8)
+  rod('diagonal brace',(.4*math.cos(a),.4*math.sin(a),.97),(.22*math.cos(a+math.pi/2),.22*math.sin(a+math.pi/2),1.68),.018,steel,8)
+ cyl('bell',(0,0,1.13),.18,.28,steel,16);ball('bell clapper',(0,0,.90),(.055,.055,.055),steel)
+ cyl('light housing',(0,0,2.56),.16,.17,dark,16)
+ ball('buoy_light',(0,0,2.70),(.13,.13,.14),navr)
+ cyl('lamp cap',(0,0,2.84),.17,.035,dark,16)
+
+def seabed():
+ for i,(x,y,r) in enumerate([(-2.15,-.92,.6),(-1.12,1.18,.4),(1.9,1.16,.54),(2.3,-1.54,.35)]):
+  n=9;v=[]
+  for z,s in ((0,.87),(.23*r,1),(.68*r,.69),(r,.17)):
+   for k in range(n):
+    a=k*2*math.pi/n;noise=random.uniform(.83,1.13)
+    v.append((x+math.cos(a)*r*s*noise,y+math.sin(a)*r*s*noise,z))
+  f=[tuple(range(n-1,-1,-1))]+[(h*n+k,h*n+(k+1)%n,(h+1)*n+(k+1)%n,(h+1)*n+k) for h in range(3) for k in range(n)]+[tuple(range(3*n,4*n))]
+  mesh('silted rock',v,f,silt if i%2 else steel)
+ for i in range(11):
+  x=-1.56+i*.27;y=-1.72+math.sin(i*.46)*.17
+  o=ring('rusted chain link',(x,y,.07),.16,.027,rust,seg=16);o.scale=(1.18,.62,1);o.rotation_euler=(math.pi/2 if i%2 else .16,0,.2*math.sin(i*.45))
+ o=cyl('crushed glass bottle',(1.33,-.44,.11),.115,.60,bottle,12,(0,math.pi/2,.23));o.scale=(1,.75,.53)
+ rod('bottle neck',(1.64,-.35,.10),(1.84,-.30,.09),.047,bottle,10)
+ ring('broken rim',(1.84,-.30,.09),.051,.009,bottle,(0,math.pi/2,.23),12)
+ for i in range(4):
+  x=1.19+random.random()*.7;y=-.69+random.random()*.5
+  mesh('glass fragment',[(x,y,.01),(x+.08,y+.015,.01),(x+.02,y+.075,.018)],[(0,1,2)],bottle)
+
+{'boat':boat,'box':box_v2,'buoy':buoy,'seabed':seabed}[NAME]()
+assets=list(bpy.context.scene.objects)
+for o in assets:
+ if o.type=='MESH':
+  bpy.ops.object.select_all(action='DESELECT');o.select_set(True);bpy.context.view_layer.objects.active=o
+  bpy.ops.object.convert(target='MESH');bpy.ops.object.transform_apply(location=False,rotation=True,scale=True)
+if NAME=='boat':
+ protected={'nav_red','nav_green','mast_white'}
+ groups={}
+ for o in list(bpy.context.scene.objects):
+  if o.type!='MESH' or o.name in protected or o.name.startswith('flood_lamp'):continue
+  key=o.data.materials[0].name if o.data.materials else 'unpainted'
+  groups.setdefault(key,[]).append(o)
+ for material,objs in groups.items():
+  if len(objs)<2:continue
+  bpy.ops.object.select_all(action='DESELECT')
+  for o in objs:o.select_set(True)
+  bpy.context.view_layer.objects.active=objs[0]
+  bpy.ops.object.join();objs[0].name='boat '+material+' assembly'
+ assets=list(bpy.context.scene.objects)
+tri=sum(sum(len(p.vertices)-2 for p in o.data.polygons) for o in assets if o.type=='MESH')
+print('ASSET_TRIANGLES',NAME,tri)
+bpy.ops.object.select_all(action='DESELECT')
+for o in assets:o.select_set(True)
+path=os.path.join(ROOT,NAME+'.glb')
+bpy.ops.export_scene.gltf(filepath=path,export_format='GLB',use_selection=True,export_yup=True)
+print('ASSET_EXPORTED',path,os.path.getsize(path))
+
+# Preview-only stage, excluded from the exported GLB.
+floor=mat('preview black sea' if NAME in ('boat','buoy') else 'preview dark silt',(.008,.017,.023) if NAME in ('boat','buoy') else (.036,.045,.047),.1,.75)
+cube('preview floor',(0,0,-.22 if NAME in ('boat','buoy') else -.04),(80,80,.07),floor)
+def area(n,loc,power,color,size,target):
+ d=bpy.data.lights.new(n,'AREA');d.energy=power;d.color=color;d.shape='DISK';d.size=size
+ o=bpy.data.objects.new(n,d);bpy.context.collection.objects.link(o);o.location=loc;o.rotation_euler=(Vector(target)-o.location).to_track_quat('-Z','Y').to_euler()
+if NAME=='boat':cam=(17,-22,16);target=(0,0,1.5);size=19;lights=[((2,-5,10),2800,(.34,.51,1),7),((-2,-3,8),1200,(1,.54,.27),5)]
+elif NAME=='buoy':cam=(5,-7,6);target=(0,0,1.2);size=5.4;lights=[((3,-3,7),1300,(.36,.53,1),5),((-3,1,5),650,(1,.42,.25),4)]
+elif NAME=='box':cam=(.7,-.8,.65);target=(0,0,.11);size=.86;lights=[((1,-2,3),350,(.30,.47,.7),2.5),((-1,1,2),500,(1,.72,.42),1.6)]
+else:cam=(7,-9,7);target=(0,0,.15);size=8;lights=[((2,-3,7),1100,(.30,.50,.71),6),((-3,1,4),900,(1,.7,.43),4)]
+for i,(loc,power,color,diam) in enumerate(lights):area('preview light '+str(i),loc,power,color,diam,target)
+d=bpy.data.cameras.new('preview camera');o=bpy.data.objects.new('preview camera',d);bpy.context.collection.objects.link(o)
+o.location=cam;o.rotation_euler=(Vector(target)-o.location).to_track_quat('-Z','Y').to_euler();d.type='ORTHO';d.ortho_scale=size;bpy.context.scene.camera=o
+bpy.context.scene.world.color=(.007,.009,.014)
+bpy.context.scene.render.engine='BLENDER_EEVEE';bpy.context.scene.render.resolution_x=1200;bpy.context.scene.render.resolution_y=800
+bpy.context.scene.view_settings.view_transform='AgX'
+bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
+bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
+bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
+preview=os.path.join(ROOT,'preview',NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
+print('ASSET_PREVIEW',preview)

@@ -15,6 +15,7 @@
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
 body { font-family: Cormorant, Georgia, serif; -webkit-font-smoothing: antialiased; cursor: default; user-select: none; -webkit-user-select: none; touch-action: none; }
 canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+#bay { opacity: 0; }
 .cap { position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%); width: min(92vw, 760px); text-align: center;
   font-style: italic; font-weight: 400; font-size: clamp(20px, 2.6vw, 30px); line-height: 1.35; letter-spacing: .01em;
   opacity: 0; transition: opacity 1.4s ease; pointer-events: none; text-shadow: 0 0 18px #000; }
@@ -56,6 +57,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 </style>
 </head>
 <body>
+<canvas id="bay"></canvas>
 <canvas id="c"></canvas>
 <div class="cap" id="cap"></div>
 <div class="place" id="place"></div>
@@ -66,6 +68,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 </button>
 <div class="tip" id="tip"></div>
 <button class="begin" id="begin">observe</button>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/addons/" } }</script>
 <script>
 (() => {
   const cv = document.getElementById('c'), g = cv.getContext('2d');
@@ -90,12 +93,19 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     eye: 0,           // 1 once the pings are eyes
     pull: 0,          // the lines pulled in to the point, 0 to 1
     titleA: 0,        // the title's opacity, inside what the eyes have uncovered
+    bay: 0,           // the bay in 3D, round the point
   };
-  const tween = (k, to, ms, ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2) => new Promise(res => {
-    const from = S[k], t0 = performance.now(); if (reduce) ms = Math.min(ms, 300);
-    const step = now => { const t = Math.min(1, (now - t0) / ms); S[k] = from + (to - from) * ease(t); t < 1 ? requestAnimationFrame(step) : res(); };
+  const tweenOn = (o, k, to, ms, ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2) => new Promise(res => {
+    const from = o[k], t0 = performance.now(); if (reduce) ms = Math.min(ms, 300);
+    const step = now => { const t = Math.min(1, (now - t0) / ms); o[k] = from + (to - from) * ease(t); t < 1 ? requestAnimationFrame(step) : res(); };
     requestAnimationFrame(step);
   });
+  const tween = (k, to, ms, ease) => tweenOn(S, k, to, ms, ease);
+  // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
+  let bay = null, bayLoad = null;
+  const q0 = new URLSearchParams(location.search);
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b1')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const P = { x: 0, y: 0 };   // the point on screen this frame
   const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
   // a line on screen, and its recording from The Point at Infinity where it has one; the line stays up while it is spoken
@@ -174,8 +184,13 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 
   function draw(now) {
     const dt = Math.min(.05, (now - last) / 1000); last = now; t += dt;
-    g.fillStyle = '#050506'; g.fillRect(0, 0, W, H);
-    const cx = W / 2, cy = H * S.py, R = Math.hypot(W, H);
+    let cx = W / 2, cy = H * S.py; const R = Math.hypot(W, H);
+    if (bay && S.bay > 0) {
+      bay.st.fade = S.bay; bay.render(dt);
+      const p = bay.screen(); cx += (p.x - cx) * S.bay; cy += (p.y - cy) * S.bay;
+      g.clearRect(0, 0, W, H); if (S.bay < 1) { g.fillStyle = `rgba(5,5,6,${1 - S.bay})`; g.fillRect(0, 0, W, H); }
+    } else { g.fillStyle = '#050506'; g.fillRect(0, 0, W, H); }
+    P.x = cx; P.y = cy;
 
     // the bay: a cold dark gradient, snow drifting up past the lamp as it sinks
     if (S.sea > 0) {
@@ -242,7 +257,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     // the point: steady, sending out one ping a bar, a ring that widens and fades
     if (S.pt > 0) {
       const ph = (t % 3.33) / 3.33, kick = Math.exp(-ph * 14);       // a brief brightening as each ping leaves
-      const gr = 18 * (1 + 6 * S.flare);
+      const gr = 18 * (1 + 6 * S.flare) * (1 - .45 * S.bay);
       const glow = g.createRadialGradient(cx, cy, 0, cx, cy, gr * 3);
       glow.addColorStop(0, `rgba(255,246,228,${(.6 + .35 * kick) * S.pt})`);
       glow.addColorStop(.12, `rgba(255,236,206,${(.2 + .15 * kick) * S.pt})`);
@@ -283,7 +298,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // Enter, is enough at once ----
   let canHold = false, holding = false, done = null;
   const HOLD = .6, mouse = { x: 0, y: 0, on: false };
-  const near = () => Math.hypot(mouse.x - W / 2, mouse.y - H * S.py) < Math.max(60, Math.min(W, H) * .07);
+  const near = () => Math.hypot(mouse.x - P.x, mouse.y - P.y) < Math.max(60, Math.min(W, H) * .07);
   const tick = () => {
     if (!canHold) return;
     holding = mouse.on && near();
@@ -292,7 +307,11 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     requestAnimationFrame(tick);
   };
   const finish = () => { if (canHold) { S.ring = 1; canHold = false; done && done(); } };
-  addEventListener('pointermove', e => { if (e.pointerType === 'mouse') { mouse.x = e.clientX; mouse.y = e.clientY; mouse.on = true; } });
+  addEventListener('pointermove', e => {
+    if (e.pointerType === 'mouse') { mouse.x = e.clientX; mouse.y = e.clientY; mouse.on = true; }
+    // the pointer turns the view of the bay
+    if (bay) { bay.look.x = Math.max(-1, Math.min(1, e.clientX / W * 2 - 1)); bay.look.y = Math.max(-1, Math.min(1, e.clientY / H * 2 - 1)); }
+  });
   document.addEventListener('mouseleave', () => { mouse.on = false; });
   addEventListener('pointerdown', e => { if (e.target.id !== 'skip' && e.target.id !== 'begin' && !(e.target.closest && e.target.closest('#sound')) && e.pointerType !== 'mouse') finish(); });
   addEventListener('keydown', e => { if ((e.code === 'Space' || e.code === 'Enter') && canHold) { e.preventDefault(); finish(); } });
@@ -324,7 +343,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   (async () => {
     // nothing but the way in; its click is what lets a browser play the sound
     const b = $('begin'); await wait(400); b.classList.add('on'); b.focus({ preventScroll: true });
-    await new Promise(res => b.addEventListener('click', e => { e.stopPropagation(); if (want) startSound(); res(); }, { once: true }));
+    if (q0.get('at') === 'bay') { b.remove(); S.pt = 1; skipping = false; loadBay(); await bayScene(); return; }
+    await new Promise(res => b.addEventListener('click', e => { e.stopPropagation(); if (want) startSound(); loadBay(); res(); }, { once: true }));
     b.blur(); b.classList.add('tremble'); await wait(500);
     b.classList.remove('tremble'); b.classList.add('line'); await wait(110);
     b.classList.add('shut'); await wait(140);
@@ -351,7 +371,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     skipping = false;
     await say('I was made to observe minds.', 3400);
     await say('I begin with the ones that saw it.', 3800);
-    // the point becomes a lamp, going down on a cable into the bay
+    if (await loadBay()) return bayScene();
+    // without WebGL: the point becomes a lamp, going down on a cable into the bay
     tween('py', .3, 2800); tween('sea', 1, 3200); await wait(2600);
     $('place').textContent = 'Narragansett Bay · the deepest channel · now'; $('place').classList.add('on');
     tween('sink', 1, 9000);
@@ -361,6 +382,27 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     tween('box', 1, 4200);
     await say('His great-granddaughter came back for it.', 5200);
   })();
+  // the bay opens round the point: the lamp on its cable from the survey boat's A-frame, just over the water. Observed
+  // again, it goes down, and the view follows it under until there is nothing but the point, pinging in the dark
+  async function bayScene() {
+    await loadBay(); await Promise.race([bay.ready, wait(8000)]);
+    $('skip').style.display = 'none';
+    $('place').textContent = 'Narragansett Bay · the deepest channel · now'; $('place').classList.add('on');
+    await tween('bay', 1, 4200);
+    const howTo = matchMedia('(hover: hover) and (pointer: fine)').matches ? 'rest the cursor on the point' : 'tap the point';
+    let observed = false;
+    (async () => { await wait(7000); while (!observed) { tip('observe', howTo, 4500); await wait(16000); } })();
+    // a cursor still resting where the point was must leave it first; coming back to it is the choice to go down
+    while (mouse.on && near()) await wait(100);
+    await waitHold(); observed = true; hideTip('observe');
+    S.ring = 0; $('place').classList.remove('on');
+    tweenOn(bay.st, 'dive', 1, 24000, k => k);
+    await wait(15000);
+    await say('In 1935 a doctor threw a stone into the deepest channel of this bay.', 5200);
+    await say('He said he had rid the earth of something too dangerous to rest upon it.', 5600);
+    tweenOn(bay.st, 'floor', 1, 8000); await wait(5000);
+    await say('His great-granddaughter came back for it.', 5200);
+  }
 })();
 </script>
 </body>

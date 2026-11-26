@@ -1,2 +1,6 @@
 # whole source recordings, kept local; only the cuts are used
 /audio/source/
+/models/preview/
+/models/src/*.blend
+/models/src/*.blend1
+/models/*.glb
