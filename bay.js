@@ -329,9 +329,10 @@ export function createBay(canvas) {
       if (fl) { const p = boat.worldToLocal(fl.getWorldPosition(new THREE.Vector3())); flood.position.copy(p).add(new THREE.Vector3(0, .25, -.3)); const t = boat.worldToLocal(s.getWorldPosition(new THREE.Vector3())); flood.target.position.set(t.x, 0, t.z + 1.5); }
     }),
     loader.loadAsync('models/web/buoy.glb').then(gl => { const b = gl.scene; dress(b); b.position.set(-34, 0, 22); b.userData.bob = 1; scene.add(b); buoy = b; }),
-    loader.loadAsync('models/web/box.glb').then(gl => { box = gl.scene; dress(box); box.position.set(.35, SEABED + floorY(.35, .45) - .1, .45); box.rotation.set(.08, .7, -.05); box.scale.setScalar(1.3); box.visible = false; scene.add(box); }),
+    loader.loadAsync('models/web/box.glb').then(gl => { box = gl.scene; dress(box); box.position.set(.35, SEABED + floorY(.35, .45) - .1, .45); box.rotation.set(.08, .7, -.05); box.scale.setScalar(1.6); box.visible = false; scene.add(box); }),
     loader.loadAsync('models/web/seabed.glb').then(gl => {
-      dress(gl.scene); gl.scene.position.set(2.6, 0, -2.2); gl.scene.rotation.y = .6; props.add(gl.scene); props.updateMatrixWorld(true);
+      dress(gl.scene); gl.scene.traverse(o => { if (o.isMesh) o.material.color.multiplyScalar(.5); });   // 44 m down, the rust has no colour left to speak of
+      gl.scene.position.set(-3.2, 0, 1.2); gl.scene.rotation.y = 2.2; props.add(gl.scene); props.updateMatrixWorld(true);
       // each prop settles into the silt where it lies
       for (const o of [...gl.scene.children]) { const w = o.getWorldPosition(new THREE.Vector3()); o.position.y += floorY(w.x, w.z) - .04; }
     }),
@@ -395,7 +396,7 @@ export function createBay(canvas) {
     const camUnder = camera.position.y < 0 ? 1 : 0;
     lampLight.intensity = mix(30, 6, under) * (1 - deep * .75);
     lampLight.distance = 0;
-    spot.intensity = under * mix(160, 60, deep) * (1 - smooth(.2, 1, fl) * .8);
+    spot.intensity = under * mix(160, 60, deep) * (1 - smooth(.2, 1, fl) * .9);
     coneMat.uniforms.amt.value = under * (1 - deep * .55);
     snowMat.uniforms.amt.value = under * camUnder * (1 - deep * .4);
     snowMat.uniforms.lampPos.value.copy(lampPos); snowMat.uniforms.time.value = time;
@@ -411,12 +412,12 @@ export function createBay(canvas) {
     look.sx += (look.x - look.sx) * Math.min(1, dt * 2.2); look.sy += (look.y - look.sy) * Math.min(1, dt * 2.2);
     const free = 1 - smooth(0, .3, d) * .7;
     const yaw = Math.PI / 4 + look.sx * .5 * free + d * .9;
-    const pitch = mix(.54, .2, smooth(.05, .5, d)) + mix(0, .55, smooth(.2, 1, fl)) - look.sy * .12 * free;
+    const pitch = mix(.54, .3, smooth(.3, .6, d)) + mix(0, .55, smooth(.2, 1, fl)) - look.sy * .12 * free;
     const dist = mix(96, 26, smooth(0, .55, d)) * mix(1, .3, smooth(0, 1, fl));
     // a tall screen keeps the same width of view as a wide one
     const fv = mix(16, 34, smooth(0, .55, d)) * Math.PI / 180;
     camera.fov = 2 * Math.atan(Math.tan(fv / 2) * Math.max(1, 1.2 / camera.aspect)) * 180 / Math.PI; camera.updateProjectionMatrix();
-    const aim = box && fl > 0 ? lampPos.clone().lerp(box.position, .45 * smooth(0, 1, fl)) : lampPos;
+    const aim = box && fl > 0 ? lampPos.clone().lerp(box.position, .55 * smooth(0, 1, fl)) : lampPos;
     tgt.lerp(aim, Math.min(1, dt * (d > 0 ? 6 : 2)));
     camera.position.set(tgt.x + Math.cos(pitch) * Math.sin(yaw) * dist, tgt.y + Math.sin(pitch) * dist, tgt.z + Math.cos(pitch) * Math.cos(yaw) * dist);
     // the camera follows the lamp down, but stays above the water until the lamp is well under, then drops through it

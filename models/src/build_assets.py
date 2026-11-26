@@ -1,7 +1,7 @@
 """Observer procedural GLBs. Blender Z-up; glTF export is Y-up.
 Run: blender -b -P models/src/build_assets.py -- boat|box|buoy|seabed
 """
-import bpy, math, os, random, sys
+import bpy, math, os, random, sys, struct, zlib
 from mathutils import Vector
 random.seed(17)
 ROOT=os.path.abspath(os.path.join(os.path.dirname(__file__),'..'))
@@ -214,9 +214,10 @@ def box_v2():
  lo=[(-.224,-.143),(.124,-.182),(.226,-.093),(.183,.144),(-.170,.166)]
  hi=[(-.207,-.163),(.145,-.155),(.219,-.078),(.160,.159),(-.193,.143)]
  rim=[(-.238,-.175),(.155,-.190),(.247,-.100),(.206,.174),(-.208,.184)]
- tarnish=mat('tarnished yellow bronze #8a7a3c',(.258,.215,.076),.8,.55)
- verd=mat('verdigris in recesses #3f7d6a',(.052,.17,.124),0,.89)
- mud=mat('brown lower silt crust',(.13,.090,.045),.07,.94)
+ tarnish=mat('dark tarnished bronze brown #5e4a24',(.112,.068,.018),.85,.67)
+ worn=mat('worn bright bronze high edges',(.41,.29,.094),.85,.63)
+ verd=mat('verdigris in recesses #4e8a74',(.075,.21,.15),0,.90)
+ mud=mat('silt grey lower crust',(.17,.17,.15),.03,.94)
  pits=mat('black oxidized pits',(.028,.032,.025),.2,.87)
  def pent(n,a,b,z0,z1,ma):
   v=[(x,y,z0) for x,y in a]+[(x,y,z1) for x,y in b]
@@ -246,50 +247,122 @@ def box_v2():
    ridge+=.55*torso+.55*head+.28*coils+.22*horns
   border=math.exp(-((min(1-abs(x),1-abs(y))-.11)/.035)**2)
   twist=math.sin(34*x+11*math.sin(7*y))*math.sin(28*y+8*math.sin(5*x))
-  return .015*ridge+.006*border+.0025*cellular+.0017*noise+.0007*twist
- # Texture pixels carry corrosion where relief falls away; bronze stays in peaks.
+  # Broad forms remain in the geometry; tight interlaced cuts are baked below.
+  return .006*ridge+.002*border+.0007*cellular+.0008*noise+.0003*twist
+ # Colour and ORM at 512 px: verdigris settles in valleys, worn bronze only
+ # catches raised relief. R=occlusion, G=roughness, B=metallic.
  N=512;heights=[0.0]*(N*N)
  for j in range(N):
   y=2*j/(N-1)-1
   for i in range(N):heights[j*N+i]=relief(2*i/(N-1)-1,y)
- rgba=[];normal=[]
+ rgba=[];orm=[]
  for j in range(N):
   for i in range(N):
-   idx=j*N+i;h=heights[idx]
-   z=(math.sin(i*.051+j*.077)+math.sin(i*.019-j*.033))*.5
-   cavity=max(0,min(1,(.006-h)*72+.20*z))
-   crust=max(0,min(.38,(math.sin(i*.11+j*.09)+1)*.12))
-   bronze_color=(.31,.255,.105);green=(.052,.17,.124)
-   rgba.extend((bronze_color[0]*(1-cavity)+green[0]*cavity,
-                bronze_color[1]*(1-cavity)+green[1]*cavity,
-                bronze_color[2]*(1-cavity)+green[2]*cavity,1))
-   il=max(i-1,0);ir=min(i+1,N-1);jb=max(j-1,0);jt=min(j+1,N-1)
-   dx=(heights[j*N+ir]-heights[j*N+il])*N*.9
-   dy=(heights[jt*N+i]-heights[jb*N+i])*N*.9
-   nx,ny,nz=-dx,-dy,1;length=math.sqrt(nx*nx+ny*ny+nz*nz)
-   normal.extend(((nx/length+1)*.5,(ny/length+1)*.5,(nz/length+1)*.5,1))
- def image(n,pixels,space):
-  im=bpy.data.images.new(n,width=N,height=N,alpha=True);im.pixels.foreach_set(pixels);im.colorspace_settings.name=space;im.pack();return im
- albedo=image('casket cast bronze corrosion 512',rgba,'sRGB')
- nmap=image('casket sculpted relief normal 512',normal,'Non-Color')
- sculpt=mat('antique cast lid with baked relief',(.31,.255,.105),.8,.55)
+   h=heights[j*N+i];z=.5*(math.sin(i*.051+j*.077)+math.sin(i*.019-j*.033))
+   cavity=max(0,min(.88,(.0020-h)*140+.06*z))
+   wear=max(0,min(.75,(h-.003)*90))
+   base=(.30,.22,.10);green=(.19,.34,.28);high=(.48,.35,.17)
+   color=[base[k]*(1-cavity)+green[k]*cavity for k in range(3)]
+   color=[color[k]*(1-wear)+high[k]*wear for k in range(3)]
+   rgba.extend((*color,1))
+   orm.extend((1-cavity*.50,.65+cavity*.25,.85*(1-cavity),1))
+ def texture(n,pixels,space,dim):
+  path=os.path.join(ROOT,'src',n.replace(' ','_')+'.png')
+  raw=bytearray()
+  for row in range(dim):
+   raw.append(0)
+   for col in range(dim):
+    start=4*(row*dim+col)
+    raw.extend(max(0,min(255,round(255*pixels[start+k]))) for k in range(4))
+  def chunk(tag,data):return struct.pack('!I',len(data))+tag+data+struct.pack('!I',zlib.crc32(tag+data)&0xffffffff)
+  png=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('!2I5B',dim,dim,8,6,0,0,0))+chunk(b'IDAT',zlib.compress(bytes(raw),6))+chunk(b'IEND',b'')
+  with open(path,'wb') as fh:fh.write(png)
+  im=bpy.data.images.load(path);im.name=n;im.colorspace_settings.name=space
+  if 'color' in n or 'normal' in n:
+   _=im.pixels[0]
+   bpy.context.scene.render.image_settings.quality=95
+   jpg=path[:-4]+'.jpg';im.filepath_raw=jpg;im.file_format='JPEG';im.save()
+   bpy.data.images.remove(im);im=bpy.data.images.load(jpg);im.name=n;im.colorspace_settings.name=space
+   os.remove(path)
+  im.pack();return im
+ def baked_normal(dim,sample):
+  field=[sample(i/(dim-1),j/(dim-1)) for j in range(dim) for i in range(dim)]
+  out=[]
+  for j in range(dim):
+   for i in range(dim):
+    il=max(0,i-1);ir=min(dim-1,i+1);jb=max(0,j-1);jt=min(dim-1,j+1)
+    dx=(field[j*dim+ir]-field[j*dim+il])*dim*.72
+    dy=(field[jt*dim+i]-field[jb*dim+i])*dim*.72
+    nx,ny,nz=-dx,-dy,1;length=math.sqrt(nx*nx+ny*ny+nz*nz)
+    out.extend(((nx/length+1)*.5,(ny/length+1)*.5,(nz/length+1)*.5,1))
+  return out
+ def top_sample(u,v):
+  # Smoothly interpolate the sculpt and add 1024px interlaced tool marks.
+  x=u*(N-1);y=v*(N-1);ix=min(N-2,int(x));iy=min(N-2,int(y));fx=x-ix;fy=y-iy
+  h=(heights[iy*N+ix]*(1-fx)+heights[iy*N+ix+1]*fx)*(1-fy)+(heights[(iy+1)*N+ix]*(1-fx)+heights[(iy+1)*N+ix+1]*fx)*fy
+  xx=2*u-1;yy=2*v-1
+  braid=.00032*math.sin(132*xx+12*math.sin(17*yy))*math.sin(116*yy+9*math.sin(13*xx))
+  cut=.00026*math.sin(189*xx+47*yy)*math.cos(157*yy-23*xx)
+  return h*.55+braid+cut
+ def side_sample(u,v):
+  x=2*u-1;y=2*v-1
+  braid=.0020*math.sin(17*x+4*math.sin(10*y))*math.sin(12*y+5*math.sin(9*x))
+  tendril=.0035*math.exp(-((y-.38*math.sin(7*x))/.16)**2)+.0025*math.exp(-((y+.45*math.sin(6*x+1))/.13)**2)
+  head=.0025*math.exp(-((x-.20)**2+(y-.15)**2)/.08)
+  return braid+tendril+head+.0004*math.sin(95*x+47*y)
+ albedo=texture('casket_dark_bronze_color_512',rgba,'sRGB',512)
+ ormimg=texture('casket_ORM_512',orm,'Non-Color',512)
+ nmap=texture('casket_crisp_relief_normal_1024',baked_normal(1024,top_sample),'Non-Color',1024)
+ sidenormal=texture('casket_five_side_panels_normal_512',baked_normal(512,side_sample),'Non-Color',512)
+ side_color=[];side_orm=[]
+ for j in range(512):
+  for i in range(512):
+   h=side_sample(i/511,j/511)
+   cavity=max(0,min(.82,(.0015-h)*125))
+   wear=max(0,min(.62,(h-.002)*95))
+   base=(.369,.29,.141);green=(.306,.54,.455);high=(.59,.44,.20)
+   c=[base[k]*(1-cavity)+green[k]*cavity for k in range(3)]
+   side_color.extend((*(c[k]*(1-wear)+high[k]*wear for k in range(3)),1))
+   side_orm.extend((1-cavity*.45,.67+cavity*.23,.85*(1-cavity),1))
+ sidealbedo=texture('casket_five_side_panels_color_512',side_color,'sRGB',512)
+ sideorm=texture('casket_five_side_panels_ORM_512',side_orm,'Non-Color',512)
+ sculpt=mat('matte dark antique lid with baked relief',(.112,.068,.018),.85,.67)
  nt=sculpt.node_tree;pr=nt.nodes.get('Principled BSDF')
- tex=nt.nodes.new('ShaderNodeTexImage');tex.image=albedo;tex.label='512px cavity and bronze'
+ tex=nt.nodes.new('ShaderNodeTexImage');tex.image=albedo;tex.label='512px dark bronze and cavity patina'
  nt.links.new(tex.outputs['Color'],pr.inputs['Base Color'])
- texn=nt.nodes.new('ShaderNodeTexImage');texn.image=nmap;texn.label='512px sculpted tangent normal'
- nm=nt.nodes.new('ShaderNodeNormalMap');nm.inputs['Strength'].default_value=.8
+ texn=nt.nodes.new('ShaderNodeTexImage');texn.image=nmap;texn.label='1024px crisp sculpted tangent normal'
+ nm=nt.nodes.new('ShaderNodeNormalMap');nm.inputs['Strength'].default_value=.68
  nt.links.new(texn.outputs['Color'],nm.inputs['Color']);nt.links.new(nm.outputs['Normal'],pr.inputs['Normal'])
+ texorm=nt.nodes.new('ShaderNodeTexImage');texorm.image=ormimg;texorm.label='512px occlusion roughness metallic'
+ split=nt.nodes.new('ShaderNodeSeparateColor');split.mode='RGB'
+ nt.links.new(texorm.outputs['Color'],split.inputs['Color'])
+ nt.links.new(split.outputs['Green'],pr.inputs['Roughness']);nt.links.new(split.outputs['Blue'],pr.inputs['Metallic'])
+ group=bpy.data.node_groups.new('glTF Settings','ShaderNodeTree');group.interface.new_socket(name='Occlusion',in_out='INPUT',socket_type='NodeSocketFloat')
+ settings=nt.nodes.new('ShaderNodeGroup');settings.node_tree=group;nt.links.new(split.outputs['Red'],settings.inputs['Occlusion'])
+ sidepaint=mat('matte carved side panels',(.112,.068,.018),.85,.67)
+ sidepaint.use_nodes=True;sp=sidepaint.node_tree.nodes.get('Principled BSDF')
+ st=sidepaint.node_tree.nodes.new('ShaderNodeTexImage');st.image=sidenormal
+ sn=sidepaint.node_tree.nodes.new('ShaderNodeNormalMap');sn.inputs['Strength'].default_value=.9
+ sidepaint.node_tree.links.new(st.outputs['Color'],sn.inputs['Color']);sidepaint.node_tree.links.new(sn.outputs['Normal'],sp.inputs['Normal'])
+ sc=sidepaint.node_tree.nodes.new('ShaderNodeTexImage');sc.image=sidealbedo
+ sidepaint.node_tree.links.new(sc.outputs['Color'],sp.inputs['Base Color'])
+ so=sidepaint.node_tree.nodes.new('ShaderNodeTexImage');so.image=sideorm
+ ss=sidepaint.node_tree.nodes.new('ShaderNodeSeparateColor');ss.mode='RGB'
+ sidepaint.node_tree.links.new(so.outputs['Color'],ss.inputs['Color'])
+ sidepaint.node_tree.links.new(ss.outputs['Green'],sp.inputs['Roughness']);sidepaint.node_tree.links.new(ss.outputs['Blue'],sp.inputs['Metallic'])
+ sg=sidepaint.node_tree.nodes.new('ShaderNodeGroup');sg.node_tree=group
+ sidepaint.node_tree.links.new(ss.outputs['Red'],sg.inputs['Occlusion'])
  # Circular radial tessellation follows the irregular pentagonal perimeter.
- count=160;radial=43;edge=[]
+ count=160;radial=29;edge=[]
  for k in range(5):
   a=Vector(rim[k]);b=Vector(rim[(k+1)%5])
   for t in range(count//5):edge.append(a.lerp(b,t/(count//5)))
- v=[(0,0,.248+relief(0,0))];uv=[(.5,.5)]
+ v=[(0,0,.233+relief(0,0)*.15)];uv=[(.5,.5)]
  for r in range(1,radial+1):
   t=r/radial
   for p in edge:
    x=p.x*t;y=p.y*t;u=(x+.26)/.52;vv=(y+.20)/.40
-   v.append((x,y,.215+.033*(1-t*t)+relief(2*u-1,2*vv-1)*.58))
+   v.append((x,y,.215+.018*(1-t*t)+relief(2*u-1,2*vv-1)*.15))
    uv.append((u,vv))
  f=[]
  for k in range(count):f.append((0,1+k,1+(k+1)%count))
@@ -300,24 +373,73 @@ def box_v2():
  layer=o.data.uv_layers.new(name='Relief UV')
  for poly in o.data.polygons:
   for li in poly.loop_indices:layer.data[li].uv=uv[o.data.loops[li].vertex_index]
- # Deep perimeter ribbon border and side panels (cast ridges, not loose blobs).
+ # Actual sharp raised almond eye rims. Three-dimensional pupil craters read
+ # even when the lamp grazes the lid; the normal map supplies finer tool cuts.
+ def lidheight(x,y):
+  t=min(1,math.sqrt((x/.24)**2+(y/.18)**2))
+  return .215+.018*(1-t*t)+relief(x/.26,y/.20)*.15
+ for num,(cx,cy,wx,wy) in enumerate(((-.114,.052,.061,.030),(.078,-.058,.052,.027),(.080,.070,.046,.024))):
+  for sign in (-1,1):
+   verts=[];faces=[]
+   for i in range(33):
+    t=i/32;x=cx+wx*(2*t-1);y=cy+sign*wy*math.sin(math.pi*t)
+    h=lidheight(x,y)
+    verts.extend(((x,y-sign*.004,h+.003),(x,y,h+.014),(x,y+sign*.004,h+.003)))
+   for i in range(32):
+    a=i*3;b=(i+1)*3
+    faces.extend(((a,a+1,b+1,b),(a+1,a+2,b+2,b+1)))
+   mesh('sharp cast almond eye rim %d'%num,verts,faces,worn)
+  # Four concentric rings form the inward sloping pit instead of a black dot.
+  verts=[];faces=[]
+  for radius,z in ((.019,.012),(.012,.005),(.006,-.002)):
+   for k in range(24):
+    a=2*math.pi*k/24;x=cx+radius*math.cos(a);y=cy+radius*.72*math.sin(a)
+    verts.append((x,y,lidheight(x,y)+z))
+  for r in range(2):
+   for k in range(24):
+    a=r*24+k;b=r*24+(k+1)%24;faces.append((a,b,b+24,a+24))
+  mesh('deep pupil pit %d'%num,verts,faces,tarnish)
+  ball('dark pupil floor %d'%num,(cx,cy,lidheight(cx,cy)-.001),(.006,.004,.001),pits,12)
+ # Deep perimeter ribbon border and five side panels.
  for k in range(5):
   a=Vector(rim[k]);b=Vector(rim[(k+1)%5]);a2=Vector(hi[k]);b2=Vector(hi[(k+1)%5])
-  rod('rope and ribbon cast border',(a.x*.95,a.y*.95,.228),(b.x*.95,b.y*.95,.228),.0055,tarnish,8)
-  rod('low side border',(a2.x,a2.y,.077),(b2.x,b2.y,.077),.0045,verd,8)
-  for q in range(1,8):
-   t=q/8;p=a2.lerp(b2,t);r=.007*(1+math.sin(q*2.3))
-   ball('side snarling cast knot',(p.x*1.009,p.y*1.009,.115+math.sin(q*2)*.012),(r,r,.012),tarnish,8)
+  rod('outer raised lid border',(a.x*.98,a.y*.98,.222),(b.x*.98,b.y*.98,.222),.005,worn,8)
+  rod('inner raised lid border',(a.x*.86,a.y*.86,.228),(b.x*.86,b.y*.86,.228),.0045,worn,8)
+  # 10 interlaced X knots on each border edge, as shallow cast strips.
+  for q in range(10):
+   t0=(q+.14)/10;t1=(q+.82)/10
+   p0=a.lerp(b,t0);p1=a.lerp(b,t1)
+   for flip in (-1,1):
+    ia=.875 if flip==-1 else .955;ib=.955 if flip==-1 else .875
+    x0,y0=p0.x*ia,p0.y*ia;x1,y1=p1.x*ib,p1.y*ib
+    mesh('interlaced border knot',[(x0,y0,.233),(x0+.002,y0+.002,.235),(x1+.002,y1+.002,.235),(x1,y1,.233)],[(0,1,2,3)],worn)
+  # One tightly framed relief panel per side, UV mapped to a carved normal.
+  panel=[];panel_uv=[];cols=15;rows=7
+  for j in range(rows+1):
+   vz=j/rows;z=.066+.087*vz
+   for i in range(cols+1):
+    u=.07+.86*i/cols;p=a2.lerp(b2,u)
+    panel.append((p.x*1.013,p.y*1.013,z+.002*side_sample(i/cols,vz)))
+    panel_uv.append((i/cols,vz))
+  faces=[]
+  for j in range(rows):
+   for i in range(cols):
+    p=j*(cols+1)+i;faces.append((p,p+1,p+cols+2,p+cols+1))
+  ob=mesh('carved writhing side panel %d'%k,panel,faces,sidepaint)
+  uvlay=ob.data.uv_layers.new(name='Side relief UV')
+  for poly in ob.data.polygons:
+   for li in poly.loop_indices:uvlay.data[li].uv=panel_uv[ob.data.loops[li].vertex_index]
+  for z in (.062,.158):rod('raised side panel frame',(a2.x*.99,a2.y*.99,z),(b2.x*.99,b2.y*.99,z),.006,worn,8)
+  for p in (a2,b2):rod('raised side frame upright',(p.x*.99,p.y*.99,.062),(p.x*.99,p.y*.99,.158),.006,worn,8)
  # Three hinge barrels and their pins along the uneven rear edge.
  a=Vector(hi[3]);b=Vector(hi[4])
  for q in (.22,.5,.78):
   p=a.lerp(b,q);cyl('bronze hinge knuckle',(p.x,p.y+.020,.188),.023,.055,tarnish,12,(0,math.pi/2,0))
  rod('continuous hinge pin',(a.x,a.y+.018,.188),(b.x,b.y+.018,.188),.008,dark,8)
  cube('old hasp plate',(0,-.177,.123),(.058,.017,.095),tarnish,.009)
- ring('hasp loop',(0,-.188,.084),.024,.006,verd,(math.pi/2,0,0),16)
- for q in range(15):
-  k=random.randrange(5);a=Vector(lo[k]);b=Vector(lo[(k+1)%5]);p=a.lerp(b,random.uniform(.1,.9))
-  ring('barnacle scar pit',(p.x*1.008,p.y*1.008,random.uniform(.023,.068)),.009,.0028,pits,seg=10)
+ ring('hasp loop',(0,-.188,.084),.024,.006,tarnish,(math.pi/2,0,0),16)
+ for k in range(5):
+  p=Vector(lo[k]);ring('corner barnacle scar',(p.x*1.014,p.y*1.014,.048),.011,.003,pits,seg=10)
 
 def buoy():
  cyl('red buoy hull',(0,0,-.06),.78,.72,buoyred,24)
@@ -352,7 +474,72 @@ def seabed():
   x=1.19+random.random()*.7;y=-.69+random.random()*.5
   mesh('glass fragment',[(x,y,.01),(x+.08,y+.015,.01),(x+.02,y+.075,.018)],[(0,1,2)],bottle)
 
-{'boat':boat,'box':box_v2,'buoy':buoy,'seabed':seabed}[NAME]()
+def seabed_v2():
+ rockmat=mat('submerged brown grey stone with silt dust',(.080,.076,.067),.05,.91)
+ vc=rockmat.node_tree.nodes.new('ShaderNodeVertexColor');vc.layer_name='SiltDust'
+ rockmat.node_tree.links.new(vc.outputs['Color'],rockmat.node_tree.nodes.get('Principled BSDF').inputs['Base Color'])
+ crust=mat('flaky dark chain rust',(.22,.065,.026),.32,.95)
+ wood=mat('waterlogged timber',(.075,.052,.031),.04,.94)
+ for i,(x,y,rx,ry,rz) in enumerate([(-2.16,-.90,.72,.52,.29),(-1.06,1.26,.44,.51,.24),(1.90,1.13,.62,.48,.32),(2.26,-1.56,.40,.36,.20)]):
+  bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=3,radius=1,location=(x,y,.005))
+  o=bpy.context.object;o.name='displaced partly buried rock %d'%i;o.data.materials.append(rockmat)
+  for v in o.data.vertices:
+   p=v.co;wave=.10*math.sin(8*p.x+3*p.y+i)*math.sin(9*p.y-2*p.z)+.06*math.sin(15*p.z+4*p.x)
+   cells=.045*math.sin(21*p.x+8*p.y)*math.cos(17*p.z-5*p.y)
+   radial=1+wave+cells
+   p.x*=rx*radial;p.y*=ry*radial;p.z*=rz*radial
+   p.z-=.07 if i%2 else .04
+  o.data.update()
+  for poly in o.data.polygons:poly.use_smooth=True
+  dust=o.data.vertex_colors.new(name='SiltDust')
+  for poly in o.data.polygons:
+   for li in poly.loop_indices:
+    v=o.data.vertices[o.data.loops[li].vertex_index];up=max(0,min(1,(v.co.z+.04)/(.65*rz)))
+    speck=.82+.18*random.random();base=(.060,.055,.048);top=(.20,.19,.15)
+    dust.data[li].color=tuple((base[k]*(1-up)+top[k]*up)*speck for k in range(3))+(1,)
+ # Each link lies on the floor in a shallow curve; alternating orientations
+ # interlock and sink part of the links below the silt.
+ for i in range(12):
+  x=-1.75+i*.305;y=-1.73+.31*math.sin(i*.36)
+  o=ring('heavy rusted chain link %02d'%i,(x,y,.024 if i%3 else -.012),.194,.046,rust,(math.pi/2 if i%2 else .16,0,.25*math.sin(i*.4)),20)
+  o.scale=(1.12,.72,1)
+  for j in range(2):
+   angle=j*math.pi+.4*i
+   ball('rust crust on chain',(x+math.cos(angle)*.14,y+math.sin(angle)*.07,.036),(.042,.026,.023),crust,8)
+ # Wrenched lobster-pot frame: lower rectangle, three uprights, a twisted
+ # partial crown and a collapsed funnel. Mesh panels have long since rotted.
+ cx,cy=-.62,.57;hx,hy=.67,.43
+ for z,ma in ((.03,rust),(.52,rust)):
+  corners=[(cx-hx,cy-hy,z),(cx+hx,cy-hy,z),(cx+hx,cy+hy,z),(cx-hx,cy+hy,z)]
+  for j in range(4 if z==.03 else 3):rod('broken lobster pot frame',corners[j],corners[(j+1)%4],.034,ma,10)
+ for x,y in ((cx-hx,cy-hy),(cx+hx,cy-hy),(cx-hx,cy+hy)):
+  rod('bent pot upright',(x,y,.03),(x+random.uniform(-.12,.12),y+random.uniform(-.09,.09),.52),.030,rust,10)
+ rod('collapsed pot cross brace',(cx-hx,cy-hy,.48),(cx+.22,cy+hy,.16),.022,crust,9)
+ rod('torn funnel rim',(cx+.35,cy-.20,.30),(cx+.61,cy+.06,.18),.023,rust,9)
+ for j in range(4):
+  yy=cy-hy+j*.28
+  rod('pot wire remnant',(cx-hx,yy,.17),(cx+hx*.3,yy+.03,.10),.010,crust,6)
+ # Long sunken plank with a splintered outline and two oxidized nail heads.
+ px,py=1.06,-.31
+ plankverts=[(-.78,-.16,-.025),(.68,-.14,-.04),(.79,-.09,-.038),(.72,.13,-.03),(-.62,.16,-.034),(-.8,.07,-.025)]
+ topverts=[(a,b,c+.055) for a,b,c in plankverts]
+ f=[tuple(range(len(plankverts)-1,-1,-1))]
+ for j in range(len(plankverts)):
+  k=(j+1)%len(plankverts);f.append((j,k,k+len(plankverts),j+len(plankverts)))
+ f.append(tuple(range(len(plankverts),2*len(plankverts))))
+ ob=mesh('sunken splintered plank',plankverts+topverts,f,wood);ob.location=(px,py,0);ob.rotation_euler[2]=.23
+ for x in (-.46,.44):ball('rusted plank nail',(px+x,py+x*.23,.034),(.018,.018,.008),rust,8)
+ for j in range(4):
+  rod('timber grain groove',(px-.64,py-.08+j*.046,.033),(px+.61,py+.07+j*.046,.029),.003,crust,6)
+ # The crushed bottle and a few loose shards remain from the original set.
+ o=cyl('crushed bottle',(1.55,.13,.095),.11,.54,bottle,12,(0,math.pi/2,-.3));o.scale=(1,.74,.55)
+ rod('bottle neck',(1.81,.05,.09),(2.02,-.01,.08),.046,bottle,10)
+ ring('broken bottle rim',(2.02,-.01,.08),.047,.009,bottle,(0,math.pi/2,-.3),12)
+ for j in range(4):
+  x=1.3+random.random()*.5;y=-.10+random.random()*.5
+  mesh('bottle shard',[(x,y,.012),(x+.06,y+.014,.011),(x+.02,y+.07,.015)],[(0,1,2)],bottle)
+
+{'boat':boat,'box':box_v2,'buoy':buoy,'seabed':seabed_v2}[NAME]()
 assets=list(bpy.context.scene.objects)
 for o in assets:
  if o.type=='MESH':
@@ -377,7 +564,8 @@ print('ASSET_TRIANGLES',NAME,tri)
 bpy.ops.object.select_all(action='DESELECT')
 for o in assets:o.select_set(True)
 path=os.path.join(ROOT,NAME+'.glb')
-bpy.ops.export_scene.gltf(filepath=path,export_format='GLB',use_selection=True,export_yup=True)
+bpy.ops.export_scene.gltf(filepath=path,export_format='GLB',use_selection=True,export_yup=True,
+ export_image_format='JPEG',export_jpeg_quality=88,export_image_quality=88)
 print('ASSET_EXPORTED',path,os.path.getsize(path))
 
 # Preview-only stage, excluded from the exported GLB.
@@ -388,7 +576,7 @@ def area(n,loc,power,color,size,target):
  o=bpy.data.objects.new(n,d);bpy.context.collection.objects.link(o);o.location=loc;o.rotation_euler=(Vector(target)-o.location).to_track_quat('-Z','Y').to_euler()
 if NAME=='boat':cam=(17,-22,16);target=(0,0,1.5);size=19;lights=[((2,-5,10),2800,(.34,.51,1),7),((-2,-3,8),1200,(1,.54,.27),5)]
 elif NAME=='buoy':cam=(5,-7,6);target=(0,0,1.2);size=5.4;lights=[((3,-3,7),1300,(.36,.53,1),5),((-3,1,5),650,(1,.42,.25),4)]
-elif NAME=='box':cam=(.7,-.8,.65);target=(0,0,.11);size=.86;lights=[((1,-2,3),350,(.30,.47,.7),2.5),((-1,1,2),500,(1,.72,.42),1.6)]
+elif NAME=='box':cam=(.7,-.8,.65);target=(0,0,.11);size=.86;lights=[((1,-2,3),160,(.30,.47,.7),2.5),((-1,1,2),220,(1,.72,.42),1.6),((1,-1,1.8),95,(.42,.57,.72),2.2)]
 else:cam=(7,-9,7);target=(0,0,.15);size=8;lights=[((2,-3,7),1100,(.30,.50,.71),6),((-3,1,4),900,(1,.7,.43),4)]
 for i,(loc,power,color,diam) in enumerate(lights):area('preview light '+str(i),loc,power,color,diam,target)
 d=bpy.data.cameras.new('preview camera');o=bpy.data.objects.new('preview camera',d);bpy.context.collection.objects.link(o)
