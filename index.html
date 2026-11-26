@@ -15,7 +15,7 @@
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
 body { font-family: Cormorant, Georgia, serif; -webkit-font-smoothing: antialiased; cursor: default; user-select: none; -webkit-user-select: none; touch-action: none; }
 canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-.cap { position: fixed; left: 50%; top: 64%; transform: translateX(-50%); width: min(92vw, 760px); text-align: center;
+.cap { position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%); width: min(92vw, 760px); text-align: center;
   font-style: italic; font-weight: 400; font-size: clamp(20px, 2.6vw, 30px); line-height: 1.35; letter-spacing: .01em;
   opacity: 0; transition: opacity 1.4s ease; pointer-events: none; text-shadow: 0 0 18px #000; }
 .cap.on { opacity: 1; }
@@ -52,7 +52,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 .begin.line { opacity: 1; color: transparent; background: var(--ink); border-color: var(--ink); transform: translate(-50%, -50%) scaleY(.04);
   transition: transform .11s cubic-bezier(.6, 0, 1, 1), background .06s, color .04s; }
 .begin.shut { transform: translate(-50%, -50%) scale(0, .04); transition: transform .14s cubic-bezier(.7, 0, 1, 1); }
-@media (max-width: 600px) { .place { left: 16px; top: 16px; } .cap { top: 66%; } }
+@media (max-width: 600px) { .place { left: 16px; top: 16px; } .cap { bottom: 14%; } }
 </style>
 </head>
 <body>
@@ -98,9 +98,14 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   });
   const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
+  // a line on screen, and its recording from The Point at Infinity where it has one; the line stays up while it is spoken
+  const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3',
+    'It has no size, so there is no telling how far away it is.': 'audio/voice-it-has-no-size.mp3' };
   const say = async (text, hold) => {
     if (skipping) return;
     const c = $('cap'); c.textContent = text; c.classList.add('on');
+    const v = sfx[text];
+    if (v && soundOn) { v.currentTime = 0; v.play().catch(() => {}); hold = Math.max(hold, (v.duration || 0) * 1000 + 900); }
     await wait(hold); c.classList.remove('on'); await wait(1500);
   };
 
@@ -146,6 +151,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     // the lines' sound and the pull's, cut from a waterphone and an Apprehension Engine (?lines=a-d, ?pull=a-b to compare)
     const q = new URLSearchParams(location.search);
     sfx.lines = load(`audio/lines-${/^[a-d]$/.test(q.get('lines')) ? q.get('lines') : 'a'}.mp3`, .55);
+    for (const [line, u] of Object.entries(VOICE)) sfx[line] = load(u, 1);
     sfx.pull = load(`audio/pull-${/^[ab]$/.test(q.get('pull')) ? q.get('pull') : 'a'}.mp3`, .8);
   };
   const sfx = {};
