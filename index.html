@@ -84,7 +84,6 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const snow = Array.from({ length: 260 }, () => ({ x: Math.random(), y: Math.random(), z: .3 + Math.random() * .7, s: Math.random() }));
 
   let t = 0, last = performance.now();
-  const breath = tt => .5 - .5 * Math.cos(tt / 3.33 * Math.PI * 2);   // one breath a bar, 72 bpm
 
   function draw(now) {
     const dt = Math.min(.05, (now - last) / 1000); last = now; t += dt;
@@ -152,15 +151,19 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       }
     }
 
-    // the point
+    // the point: steady, sending out one ping a bar, a ring that widens and fades
     if (S.pt > 0) {
-      const b = breath(t), gr = (16 + 22 * b) * (1 + 6 * S.flare);
+      const ph = (t % 3.33) / 3.33, kick = Math.exp(-ph * 14);       // a brief brightening as each ping leaves
+      const gr = 18 * (1 + 6 * S.flare);
       const glow = g.createRadialGradient(cx, cy, 0, cx, cy, gr * 3);
-      glow.addColorStop(0, `rgba(255,246,228,${(.55 + .3 * b) * S.pt})`);
-      glow.addColorStop(.12, `rgba(255,236,206,${(.18 + .12 * b) * S.pt})`);
+      glow.addColorStop(0, `rgba(255,246,228,${(.6 + .35 * kick) * S.pt})`);
+      glow.addColorStop(.12, `rgba(255,236,206,${(.2 + .15 * kick) * S.pt})`);
       glow.addColorStop(1, 'rgba(255,236,206,0)');
       g.fillStyle = glow; g.beginPath(); g.arc(cx, cy, gr * 3, 0, Math.PI * 2); g.fill();
-      g.fillStyle = `rgba(255,252,244,${S.pt})`; g.beginPath(); g.arc(cx, cy, 1.6 + .5 * b, 0, Math.PI * 2); g.fill();
+      g.fillStyle = `rgba(255,252,244,${S.pt})`; g.beginPath(); g.arc(cx, cy, 1.8 + .8 * kick, 0, Math.PI * 2); g.fill();
+      const pr = 4 + (1 - Math.pow(1 - ph, 3)) * Math.min(W, H) * .22;
+      g.strokeStyle = `rgba(255,246,228,${.55 * Math.pow(1 - ph, 2) * S.pt * (1 - S.sea * .5)})`;
+      g.lineWidth = 1.2; g.beginPath(); g.arc(cx, cy, pr, 0, Math.PI * 2); g.stroke();
     }
     // the hold ring
     if (S.ring > 0 || holding) {
