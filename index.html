@@ -110,9 +110,18 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const startSound = async () => {
     if (ac) { soundOn = true; ac.resume(); return; }
     ac = new (window.AudioContext || window.webkitAudioContext)(); soundOn = true;
-    // audio elements, not fetch, so the page plays from a file on disk as well as from a server
-    if (!synth) beats = ['audio/heartbeat-1.mp3', 'audio/heartbeat-2.mp3'].map(u => { const el = new Audio(u); el.preload = 'auto'; el.volume = .9; el.muted = true; el.play().then(() => { el.pause(); el.muted = false; }).catch(() => { el.muted = false; }); return el; });   // played once, muted, inside the tap, so later plays are allowed
+    // audio elements, not fetch, so the page plays from a file on disk as well as from a server; each is played once,
+    // muted, inside the tap, so that later plays are allowed
+    const load = (u, vol) => { const el = new Audio(u); el.preload = 'auto'; el.volume = vol; el.muted = true;
+      el.play().then(() => { el.pause(); el.currentTime = 0; el.muted = false; }).catch(() => { el.muted = false; }); return el; };
+    if (!synth) beats = ['audio/heartbeat-1.mp3', 'audio/heartbeat-2.mp3'].map(u => load(u, .9));
+    // the lines' sound and the pull's, cut from a waterphone and an Apprehension Engine (?lines=a-d, ?pull=a-b to compare)
+    const q = new URLSearchParams(location.search);
+    sfx.lines = load(`audio/lines-${/^[a-d]$/.test(q.get('lines')) ? q.get('lines') : 'a'}.mp3`, .75);
+    sfx.pull = load(`audio/pull-${/^[ab]$/.test(q.get('pull')) ? q.get('pull') : 'a'}.mp3`, .8);
   };
+  const sfx = {};
+  const play = k => { if (soundOn && sfx[k]) { sfx[k].currentTime = 0; sfx[k].play().catch(() => {}); } };
   const thump = (at, f0, f1, gain) => {   // a sine dropping in pitch, a fast attack, a slow fall
     const o = ac.createOscillator(), gn = ac.createGain();
     o.frequency.setValueAtTime(f0, at); o.frequency.exponentialRampToValueAtTime(f1, at + .14);
@@ -282,7 +291,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     tween('pt', 1, 1600); await wait(2400);
     await say('This is a point.', 3200);
     await say('It has no size, so there is no telling how far away it is.', 4400);
-    tween('linesA', 1, 1600); tween('lines', 1, 6500, t => t);
+    tween('linesA', 1, 1600); tween('lines', 1, 6500, t => t); if (!skipping) play('lines');
     await say('Every line, followed far enough, comes to it.', 5200);
     await wait(skipping ? 0 : 600);
     tween('lines', 1, 300); $('skip').style.display = 'none';
@@ -294,7 +303,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     await waitHold(); observed = true;
     hideTip('observe'); tween('titleA', 0, 900); tween('eye', 0, 900);
     // every line pulls itself into the point, slow to start and fast all the way in, then the flash
-    await tween('pull', 1, 750, k => k * k * k);
+    play('pull'); await tween('pull', 1, 750, k => k * k * k);
     S.linesA = 0;
     await tween('flare', 1, 160); S.ring = 0; await tween('flare', 0, 1600);
     skipping = false;
