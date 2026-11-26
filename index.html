@@ -18,9 +18,6 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   font-style: italic; font-weight: 400; font-size: clamp(20px, 2.6vw, 30px); line-height: 1.35; letter-spacing: .01em;
   opacity: 0; transition: opacity 1.4s ease; pointer-events: none; text-shadow: 0 0 18px #000; }
 .cap.on { opacity: 1; }
-.title { position: fixed; left: 50%; top: 27%; transform: translate(-50%, -50%); font-weight: 300; font-size: clamp(34px, 6vw, 76px);
-  letter-spacing: .42em; padding-left: .42em; opacity: 0; transition: opacity 2.4s ease; pointer-events: none; }
-.title.on { opacity: 1; }
 .hint { position: fixed; left: 50%; top: 64%; transform: translateX(-50%); font-family: Mono, monospace; font-size: 11px; letter-spacing: .32em;
   text-transform: uppercase; color: var(--dim); opacity: 0; transition: opacity 1.2s ease; pointer-events: none; padding-left: .32em; }
 .hint.on { opacity: 1; }
@@ -35,7 +32,6 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 </head>
 <body>
 <canvas id="c"></canvas>
-<div class="title" id="title">OBSERVER</div>
 <div class="cap" id="cap"></div>
 <div class="hint" id="hint">rest on the point</div>
 <div class="place" id="place"></div>
@@ -61,6 +57,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     sink: 0,          // how far down the lamp has gone
     floor: 0,         // the silt rising into the light
     box: 0,           // the box caught in the light
+    eye: 0,           // 1 once the pings are eyes
+    titleA: 0,        // the title's opacity, inside what the eyes have uncovered
   };
   const tween = (k, to, ms, ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2) => new Promise(res => {
     const from = S[k], t0 = performance.now(); if (reduce) ms = Math.min(ms, 300);
@@ -80,6 +78,25 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     const a = i / 40 * Math.PI * 2 + (Math.sin(i * 12.9898) * .5) * .12;
     return { a, d: .55 + ((Math.sin(i * 78.233) * 43758.5) % 1 + 1) % 1 * .45, delay: (i * 7 % 40) / 40 };
   });
+  // ---- the title, drawn once offscreen so the eye can uncover it ----
+  const titleCv = document.createElement('canvas'), tg = titleCv.getContext('2d');
+  let titleW = 0, titleH = 0;
+  const drawTitle = () => {
+    const fs = Math.max(34, Math.min(76, W * .06)), sp = fs * .42, word = 'OBSERVER';
+    tg.font = `300 ${fs}px Cormorant`;
+    const ws = [...word].map(c => tg.measureText(c).width), tw = ws.reduce((a, b) => a + b, 0) + sp * (word.length - 1);
+    titleW = tw; titleH = fs * 1.3;
+    titleCv.width = Math.ceil(tw * D); titleCv.height = Math.ceil(titleH * D);
+    tg.setTransform(D, 0, 0, D, 0, 0); tg.font = `300 ${fs}px Cormorant`; tg.fillStyle = '#e9e4da'; tg.textBaseline = 'middle';
+    let x = 0; [...word].forEach((c, i) => { tg.fillText(c, x, titleH / 2); x += ws[i] + sp; });
+  };
+  document.fonts.load('300 76px Cormorant').then(drawTitle); addEventListener('resize', () => document.fonts.ready.then(drawTitle));
+  // an eye: two arcs meeting in points left and right
+  const eyePath = (x, y, a, b) => {
+    g.beginPath(); g.moveTo(x - a, y);
+    g.quadraticCurveTo(x, y - b * 2, x + a, y); g.quadraticCurveTo(x, y + b * 2, x - a, y); g.closePath();
+  };
+  let eyeT0 = 0, uncovered = 0;      // when the eye pings began; how far the widest eye has reached
   // ---- marine snow ----
   const snow = Array.from({ length: 260 }, () => ({ x: Math.random(), y: Math.random(), z: .3 + Math.random() * .7, s: Math.random() }));
 
@@ -161,9 +178,23 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       glow.addColorStop(1, 'rgba(255,236,206,0)');
       g.fillStyle = glow; g.beginPath(); g.arc(cx, cy, gr * 3, 0, Math.PI * 2); g.fill();
       g.fillStyle = `rgba(255,252,244,${S.pt})`; g.beginPath(); g.arc(cx, cy, 1.8 + .8 * kick, 0, Math.PI * 2); g.fill();
-      const pr = 4 + (1 - Math.pow(1 - ph, 3)) * Math.min(W, H) * .22;
-      g.strokeStyle = `rgba(255,246,228,${.55 * Math.pow(1 - ph, 2) * S.pt * (1 - S.sea * .5)})`;
-      g.lineWidth = 1.2; g.beginPath(); g.arc(cx, cy, pr, 0, Math.PI * 2); g.stroke();
+      const out = 1 - Math.pow(1 - ph, 3), fade = Math.pow(1 - ph, 2) * S.pt * (1 - S.sea * .5);
+      g.lineWidth = 1.2;
+      if (S.eye > 0) {
+        // the ping as an eye, from the point out past the title; the title shows wherever an eye has passed
+        const pe = ((t - eyeT0) % 3.33) / 3.33, eo = 1 - Math.pow(1 - pe, 3), ef = Math.pow(1 - pe, 1.6) * S.pt * S.eye;
+        const A = W * .5, B = H * .36;
+        uncovered = Math.max(uncovered, eo);
+        if (titleW && S.titleA > 0) {
+          g.save(); eyePath(cx, cy, A * uncovered + 1, B * uncovered + 1); g.clip(); g.globalAlpha = S.titleA;
+          g.drawImage(titleCv, cx - titleW / 2, H * .27 - titleH / 2, titleW, titleH); g.restore();
+        }
+        g.strokeStyle = `rgba(255,246,228,${.6 * ef})`; eyePath(cx, cy, 4 + A * eo, 2 + B * eo); g.stroke();
+        g.strokeStyle = `rgba(255,246,228,${.35 * ef})`; g.beginPath(); g.arc(cx, cy, 2 + B * eo * .42, 0, Math.PI * 2); g.stroke();
+      } else {
+        g.strokeStyle = `rgba(255,246,228,${.55 * fade})`;
+        g.beginPath(); g.arc(cx, cy, 4 + out * Math.min(W, H) * .22, 0, Math.PI * 2); g.stroke();
+      }
     }
     // the hold ring
     // the ring fills round the cursor while it rests on the point
@@ -208,11 +239,11 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     await say('Every line, followed far enough, comes to it.', 5200);
     await wait(skipping ? 0 : 600);
     tween('lines', 1, 300); $('skip').style.display = 'none';
-    $('title').classList.add('on'); await wait(1800);
+    eyeT0 = t; uncovered = 0; S.eye = 1; S.titleA = 1; await wait(2400);
     $('hint').textContent = matchMedia('(hover: hover) and (pointer: fine)').matches ? 'rest on the point' : 'tap to observe';
     $('hint').classList.add('on');
     await waitHold();
-    $('hint').classList.remove('on'); $('title').classList.remove('on');
+    $('hint').classList.remove('on'); tween('titleA', 0, 900); tween('eye', 0, 900);
     tween('linesA', 0, 900);
     await tween('flare', 1, 220); S.ring = 0; await tween('flare', 0, 1600);
     skipping = false;
