@@ -25,9 +25,14 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 .skip { position: fixed; right: 24px; bottom: 20px; font-family: Mono, monospace; font-size: 10px; letter-spacing: .24em; text-transform: uppercase;
   color: #4d4a45; background: none; border: 0; cursor: pointer; padding: 8px; }
 .skip:hover { color: var(--dim); }
-.sound { position: fixed; left: 24px; bottom: 20px; font-family: Mono, monospace; font-size: 10px; letter-spacing: .24em; text-transform: uppercase;
-  color: #6a665f; background: none; border: 0; cursor: pointer; padding: 8px; }
+.sound { position: fixed; left: 18px; bottom: 14px; width: 40px; height: 40px; padding: 9px; background: none; border: 0; cursor: pointer; color: #8f8a80; transition: color .3s; }
 .sound:hover { color: var(--ink); }
+.sound svg { width: 22px; height: 22px; display: block; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.sound svg path:first-child { fill: currentColor; fill-opacity: .18; }
+/* the icon shows the state; hovering shows the state a click will give */
+.sound .i-off, .sound.muted .i-on, .sound:hover .i-on, .sound.muted:hover .i-off { display: none; }
+.sound.muted .i-off, .sound:hover .i-off, .sound.muted:hover .i-on { display: block; }
+@media (hover: none) { .sound:hover .i-off { display: none; } .sound:hover .i-on { display: block; } .sound.muted:hover .i-on { display: none; } .sound.muted:hover .i-off { display: block; } }
 .tip { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); font-family: Mono, monospace; font-size: 10px; letter-spacing: .3em;
   text-transform: uppercase; color: var(--dim); padding-left: .3em; opacity: 0; transition: opacity 1.6s ease; pointer-events: none; white-space: nowrap; }
 .tip.on { opacity: .55; }
@@ -39,7 +44,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 <div class="cap" id="cap"></div>
 <div class="place" id="place"></div>
 <button class="skip" id="skip" aria-label="Skip to hold">skip</button>
-<button class="sound" id="sound" aria-pressed="false">sound off</button>
+<button class="sound" id="sound" aria-label="Turn sound off">
+  <svg class="i-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path class="w" d="M15.5 8.5a5 5 0 0 1 0 7"/><path class="w" d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+  <svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path class="w" d="m16 9.5 5 5m0-5-5 5"/></svg>
+</button>
 <div class="tip" id="tip"></div>
 <script>
 (() => {
@@ -105,10 +113,13 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   let eyeT0 = 1e9, lastBeat = -1;     // when the eye leaves (with a ping); the last ping that beat
 
   // ---- the heartbeat: the two beats cut from the ElevenLabs take, in turn, or one made here (?beat=synth) ----
+  // sound is on unless turned off (remembered in this browser); a browser lets it start only once the page is clicked,
+  // tapped or a key pressed, so until then it waits
+  let want = true; try { want = localStorage.getItem('observer-sound') !== 'off'; } catch (e) {}
   let ac = null, beats = [], beatN = 0, soundOn = false;
   const synth = new URLSearchParams(location.search).get('beat') === 'synth';
   const startSound = async () => {
-    if (ac) { soundOn = true; ac.resume(); return; }
+    if (ac) { soundOn = true; ac.resume(); [...beats, sfx.lines, sfx.pull].forEach(el => { if (!el || !el.paused) return; el.muted = true; el.play().then(() => { el.pause(); el.currentTime = 0; el.muted = false; }).catch(() => { el.muted = false; }); }); return; }
     ac = new (window.AudioContext || window.webkitAudioContext)(); soundOn = true;
     // audio elements, not fetch, so the page plays from a file on disk as well as from a server; each is played once,
     // muted, inside the tap, so that later plays are allowed
@@ -261,23 +272,26 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const finish = () => { if (canHold) { S.ring = 1; canHold = false; done && done(); } };
   addEventListener('pointermove', e => { if (e.pointerType === 'mouse') { mouse.x = e.clientX; mouse.y = e.clientY; mouse.on = true; } });
   document.addEventListener('mouseleave', () => { mouse.on = false; });
-  addEventListener('pointerdown', e => { if (e.target.id !== 'skip' && e.pointerType !== 'mouse') finish(); });
+  addEventListener('pointerdown', e => { if (e.target.id !== 'skip' && !(e.target.closest && e.target.closest('#sound')) && e.pointerType !== 'mouse') finish(); });
   addEventListener('keydown', e => { if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); finish(); } });
   const waitHold = () => new Promise(res => { done = res; canHold = true; requestAnimationFrame(tick); });
 
+  const showSound = () => { $('sound').classList.toggle('muted', !want); $('sound').setAttribute('aria-label', want ? 'Turn sound off' : 'Turn sound on'); };
+  showSound();
   $('sound').onclick = e => {
-    e.stopPropagation();
-    if (soundOn) { soundOn = false; } else startSound();
-    $('sound').textContent = soundOn ? 'sound on' : 'sound off'; $('sound').setAttribute('aria-pressed', soundOn); hideTip('sound');
+    e.stopPropagation(); want = !want; try { localStorage.setItem('observer-sound', want ? 'on' : 'off'); } catch (err) {}
+    if (want) startSound(); else soundOn = false;
+    showSound(); hideTip('sound');
   };
-  // the first tap or key turns the sound on (a browser plays nothing before one)
+  // the first tap or key lets the sound start (a browser plays nothing before one)
   const firstGesture = e => {
-    if (e.target && e.target.id === 'sound') return;
+    if (e.target && e.target.closest && e.target.closest('#sound')) return;
     removeEventListener('pointerdown', firstGesture); removeEventListener('keydown', firstGesture);
-    hideTip('sound');
-    startSound().then(() => { $('sound').textContent = 'sound on'; $('sound').setAttribute('aria-pressed', true); });
+    hideTip('sound'); if (want) startSound();
   };
   addEventListener('pointerdown', firstGesture); addEventListener('keydown', firstGesture);
+  // where the browser already allows it, start at once
+  if (want) { startSound(); if (ac && ac.state === 'running') { removeEventListener('pointerdown', firstGesture); removeEventListener('keydown', firstGesture); } }
   $('skip').onclick = () => { skipping = true; $('cap').classList.remove('on'); $('skip').style.display = 'none'; };
 
   // ---- tips: at the very bottom, faint, shown for a few seconds only when needed ----
@@ -287,7 +301,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the opening ----
   (async () => {
     // the point from the first moment
-    if (!matchMedia('(pointer: coarse)').matches && !soundOn) tip('sound', 'click anywhere for sound', 5000);   // a browser plays no sound until a click
+    if (!matchMedia('(pointer: coarse)').matches && want && !(ac && ac.state === 'running')) tip('sound', 'click anywhere for sound', 5000);   // a browser plays no sound until a click
     tween('pt', 1, 1600); await wait(2400);
     await say('This is a point.', 3200);
     await say('It has no size, so there is no telling how far away it is.', 4400);
