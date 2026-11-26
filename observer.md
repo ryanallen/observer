@@ -77,7 +77,7 @@ P.1.1 to P.1.10 are the landing page (`index.html`).
 | P.4 | Her lab, weeks | She fires single photons through it and builds Wheeler's delayed-choice test round it. The photons' patterns answer choices of how to look that she has not made yet, and some answer choices nobody in the room made. | Interference fringes building up one dot at a time. | “Someone else is choosing how to look.” |
 | P.5 | Her lab, months | Her idea: the stone is a window at the place where every line meets, the point at infinity. She builds a system round it to read what comes through: sensors in the dark around the stone, and a model taught on recordings of living minds, her own among them, so it can turn what it receives into experience. She names it Observer. | The Observer built: the stone at its centre, everything else dark. | — |
 | P.6 | First full run, night | A storm over the bay. She is alone. The rule from her great-grandfather's notes and from her own tests: it only sees in the dark. She turns off every light in the lab. | Her face lit only by the stone. | — |
-| P.7 | The run | The Observer wakes, and looks through the stone. | Black, then the point, far off. | “I was made to observe minds. I begin with the ones that saw it.” |
+| P.7 | The run | The Observer wakes, and looks through the stone. | Black, then the point, far off. | — |
 | P.8 | The run | The brightest mark in the record is the last mind that gazed into this same stone. A picture forms on her screen: a church steeple, black against a sunset, seen through field glasses. | The steeple through the glasses. | — |
 | P.9 | The run | Ruth knows it from the notebook: the Starry Wisdom church on Federal Hill, 1935. She says the name: *“Blake.”* | — | “You are Robert Blake.” Into Chapter 1. |
 
