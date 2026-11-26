@@ -99,8 +99,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
   // a line on screen, and its recording from The Point at Infinity where it has one; the line stays up while it is spoken
-  const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3',
-    'It has no size, so there is no telling how far away it is.': 'audio/voice-it-has-no-size.mp3' };
+  const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3' };
   const say = async (text, hold) => {
     if (skipping) return;
     const c = $('cap'); c.textContent = text; c.classList.add('on');
@@ -334,7 +333,6 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     t = 0; lastBeat = -1; S.pt = 1;
     await wait(2200);
     await say('This is a point.', 3200);
-    await say('It has no size, so there is no telling how far away it is.', 4400);
     tween('linesA', 1, 1600); tween('lines', 1, 6500, t => t); if (!skipping) play('lines');
     await say('Every line, followed far enough, comes to it.', 5200);
     await wait(skipping ? 0 : 600);
