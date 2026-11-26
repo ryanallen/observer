@@ -27,6 +27,9 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 .skip { position: fixed; right: 24px; bottom: 20px; font-family: Mono, monospace; font-size: 10px; letter-spacing: .24em; text-transform: uppercase;
   color: #4d4a45; background: none; border: 0; cursor: pointer; padding: 8px; }
 .skip:hover { color: var(--dim); }
+.sound { position: fixed; left: 24px; bottom: 20px; font-family: Mono, monospace; font-size: 10px; letter-spacing: .24em; text-transform: uppercase;
+  color: #6a665f; background: none; border: 0; cursor: pointer; padding: 8px; }
+.sound:hover { color: var(--ink); }
 @media (max-width: 600px) { .place { left: 16px; top: 16px; } .cap { top: 66%; } }
 </style>
 </head>
@@ -36,6 +39,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 <div class="hint" id="hint">rest on the point</div>
 <div class="place" id="place"></div>
 <button class="skip" id="skip" aria-label="Skip to hold">skip</button>
+<button class="sound" id="sound" aria-pressed="false">sound off</button>
 <script>
 (() => {
   const cv = document.getElementById('c'), g = cv.getContext('2d');
@@ -96,7 +100,29 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     g.beginPath(); g.moveTo(x - a, y);
     g.quadraticCurveTo(x, y - b * 2, x + a, y); g.quadraticCurveTo(x, y + b * 2, x - a, y); g.closePath();
   };
-  let eyeT0 = 0, uncovered = 0;      // when the eye pings began; how far the widest eye has reached
+  let eyeT0 = 1e9, lastBeat = -1;     // when the eye leaves (with a ping); the last ping that beat
+
+  // ---- the heartbeat: the two beats cut from the ElevenLabs take, in turn, or one made here (?beat=synth) ----
+  let ac = null, beats = [], beatN = 0, soundOn = false;
+  const synth = new URLSearchParams(location.search).get('beat') === 'synth';
+  const startSound = async () => {
+    if (ac) { soundOn = true; ac.resume(); return; }
+    ac = new (window.AudioContext || window.webkitAudioContext)(); soundOn = true;
+    // audio elements, not fetch, so the page plays from a file on disk as well as from a server
+    if (!synth) beats = ['audio/heartbeat-1.mp3', 'audio/heartbeat-2.mp3'].map(u => { const el = new Audio(u); el.preload = 'auto'; el.volume = .9; el.muted = true; el.play().then(() => { el.pause(); el.muted = false; }).catch(() => { el.muted = false; }); return el; });   // played once, muted, inside the tap, so later plays are allowed
+  };
+  const thump = (at, f0, f1, gain) => {   // a sine dropping in pitch, a fast attack, a slow fall
+    const o = ac.createOscillator(), gn = ac.createGain();
+    o.frequency.setValueAtTime(f0, at); o.frequency.exponentialRampToValueAtTime(f1, at + .14);
+    gn.gain.setValueAtTime(0, at); gn.gain.linearRampToValueAtTime(gain, at + .008); gn.gain.exponentialRampToValueAtTime(.0008, at + .42);
+    o.connect(gn).connect(ac.destination); o.start(at); o.stop(at + .45);
+  };
+  const beat = () => {
+    if (!ac || !soundOn) return;
+    const b = beats[beatN++ % 2];
+    if (!synth && b) { b.currentTime = 0; b.play().catch(() => {}); return; }
+    const now = ac.currentTime + .01; thump(now, 62, 38, .9); thump(now + .3, 56, 36, .55);   // lub, dub
+  };
   // ---- marine snow ----
   const snow = Array.from({ length: 260 }, () => ({ x: Math.random(), y: Math.random(), z: .3 + Math.random() * .7, s: Math.random() }));
 
@@ -180,21 +206,22 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       g.fillStyle = `rgba(255,252,244,${S.pt})`; g.beginPath(); g.arc(cx, cy, 1.8 + .8 * kick, 0, Math.PI * 2); g.fill();
       const out = 1 - Math.pow(1 - ph, 3), fade = Math.pow(1 - ph, 2) * S.pt * (1 - S.sea * .5);
       g.lineWidth = 1.2;
-      if (S.eye > 0) {
-        // the ping as an eye, from the point out past the title; the title shows wherever an eye has passed
-        const pe = ((t - eyeT0) % 3.33) / 3.33, eo = 1 - Math.pow(1 - pe, 3), ef = Math.pow(1 - pe, 1.6) * S.pt * S.eye;
-        const A = W * .5, B = H * .36;
-        uncovered = Math.max(uncovered, eo);
+      // the ping, every bar, always
+      g.strokeStyle = `rgba(255,246,228,${.55 * fade})`;
+      g.beginPath(); g.arc(cx, cy, 4 + out * Math.min(W, H) * .22, 0, Math.PI * 2); g.stroke();
+      // the eye: once, leaving with a ping, opening out past the title and staying open; the title shows wherever it has passed
+      if (S.eye > 0 && t >= eyeT0) {
+        const pe = Math.min(1, (t - eyeT0) / 2.6), eo = 1 - Math.pow(1 - pe, 3);
+        const A = W * .45, B = H * .36, ea = S.pt * S.eye * (.75 - .4 * pe);
         if (titleW && S.titleA > 0) {
-          g.save(); eyePath(cx, cy, A * uncovered + 1, B * uncovered + 1); g.clip(); g.globalAlpha = S.titleA;
+          g.save(); eyePath(cx, cy, A * eo + 1, B * eo + 1); g.clip(); g.globalAlpha = S.titleA;
           g.drawImage(titleCv, cx - titleW / 2, H * .27 - titleH / 2, titleW, titleH); g.restore();
         }
-        g.strokeStyle = `rgba(255,246,228,${.6 * ef})`; eyePath(cx, cy, 4 + A * eo, 2 + B * eo); g.stroke();
-        g.strokeStyle = `rgba(255,246,228,${.35 * ef})`; g.beginPath(); g.arc(cx, cy, 2 + B * eo * .42, 0, Math.PI * 2); g.stroke();
-      } else {
-        g.strokeStyle = `rgba(255,246,228,${.55 * fade})`;
-        g.beginPath(); g.arc(cx, cy, 4 + out * Math.min(W, H) * .22, 0, Math.PI * 2); g.stroke();
+        g.strokeStyle = `rgba(255,246,228,${ea})`; eyePath(cx, cy, 4 + A * eo, 2 + B * eo); g.stroke();
+        g.strokeStyle = `rgba(255,246,228,${ea * .6})`; g.beginPath(); g.arc(cx, cy, 2 + B * eo * .42, 0, Math.PI * 2); g.stroke();
       }
+      // the heartbeat, on each ping
+      const n = Math.floor(t / 3.33); if (n !== lastBeat) { lastBeat = n; if (S.pt > .5) beat(); }
     }
     // the hold ring
     // the ring fills round the cursor while it rests on the point
@@ -227,6 +254,18 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   addEventListener('keydown', e => { if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); finish(); } });
   const waitHold = () => new Promise(res => { done = res; canHold = true; requestAnimationFrame(tick); });
 
+  $('sound').onclick = e => {
+    e.stopPropagation();
+    if (soundOn) { soundOn = false; } else startSound();
+    $('sound').textContent = soundOn ? 'sound on' : 'sound off'; $('sound').setAttribute('aria-pressed', soundOn);
+  };
+  // the first tap or key turns the sound on (a browser plays nothing before one)
+  const firstGesture = e => {
+    if (e.target && e.target.id === 'sound') return;
+    removeEventListener('pointerdown', firstGesture); removeEventListener('keydown', firstGesture);
+    startSound().then(() => { $('sound').textContent = 'sound on'; $('sound').setAttribute('aria-pressed', true); });
+  };
+  addEventListener('pointerdown', firstGesture); addEventListener('keydown', firstGesture);
   $('skip').onclick = () => { skipping = true; $('cap').classList.remove('on'); $('skip').style.display = 'none'; };
 
   // ---- the opening ----
@@ -239,7 +278,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     await say('Every line, followed far enough, comes to it.', 5200);
     await wait(skipping ? 0 : 600);
     tween('lines', 1, 300); $('skip').style.display = 'none';
-    eyeT0 = t; uncovered = 0; S.eye = 1; S.titleA = 1; await wait(2400);
+    eyeT0 = Math.ceil(t / 3.33) * 3.33; S.eye = 1; S.titleA = 1; await wait((eyeT0 - t) * 1000 + 2400);
     $('hint').textContent = matchMedia('(hover: hover) and (pointer: fine)').matches ? 'rest on the point' : 'tap to observe';
     $('hint').classList.add('on');
     await waitHold();
