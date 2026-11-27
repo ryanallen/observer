@@ -339,26 +339,40 @@ def boat():
   frame.rotation_euler=(math.radians(12),0,side*math.radians(42))
   o=cube('wrapped raked corner window',(side*1.24,4.485,2.53),(.54,.044,.58),glass,.01)
   window_uv(o,3 if side<0 else 1);o.rotation_euler=(math.radians(12),0,side*math.radians(42))
+ side_window_y=(1.94,2.62,3.30,3.98)
  for x in (-1.33,1.33):
-  for i,y in enumerate((1.49,2.32,3.15,3.98)):
-   w=cube('side window',(x,y,2.605),(.038,.64,.58),glass,.006);window_uv(w,i)
-   for edge in (-.345,.345):cube('black side window mullion',(x*1.018,y+edge,2.605),(.023,.078,.67),dark,.004)
-   for edge in (-.315,.315):cube('window horizontal frame',(x*1.018,y,2.605+edge),(.023,.72,.052),dark,.004)
+  for i,y in enumerate(side_window_y):
+   w=cube('side window',(x,y,2.605),(.038,.53,.58),glass,.006);window_uv(w,i)
+   for edge in (-.285,.285):cube('black side window mullion',(x*1.018,y+edge,2.605),(.023,.078,.67),dark,.004)
+   for edge in (-.315,.315):cube('window horizontal frame',(x*1.018,y,2.605+edge),(.023,.61,.052),dark,.004)
+ for side in (-1,1):
+  x=side*1.36;y=1.27
+  cube('aft side door dark frame',(x,y,1.96),(.045,.62,1.30),dark,.012)
+  cube('aft side door worn panel',(side*1.39,y,1.96),(.034,.53,1.22),white,.010)
+  cube('aft side door window frame',(side*1.414,y,2.29),(.025,.39,.40),dark,.006)
+  door_side_glass=cube('aft side door lit window',(side*1.438,y,2.29),(.025,.33,.34),glass,.005)
+  window_uv(door_side_glass,2)
+ ball('cabin aft corner lamp housing',(-1.43,1.03,2.87),(.095,.075,.095),dark,10)
+ ball('cabin aft corner warm bulb',(-1.48,1.03,2.87),(.060,.047,.060),bulb_halo,12)
+ ball('cabin aft corner bright core',(-1.51,1.03,2.87),(.019,.016,.019),bulb_core,10)
  for i,x in enumerate((-.91,.91)):
   w=cube('aft corner window',(x,.949,2.49),(.49,.038,.78),glass,.006);window_uv(w,i+1)
   for edge in (-.255,.255):cube('aft window mullion',(x+edge,.925,2.49),(.019,.018,.82),dark,.003)
   for edge in (-.40,.40):cube('aft window horizontal frame',(x,.925,2.49+edge),(.53,.018,.02),dark,.003)
- stain=mat('cabin rust runoff',(.18,.060,.024),.05,.94)
+ stain=mat('cabin rust runoff',(.42,.125,.032),.02,.91)
  for side in (-1,1):
-  for i,y in enumerate((1.16,1.76,2.00,2.60,2.83,3.43,3.66,4.26)):
-   top=2.20+.07*math.sin(i*2.1);bottom=1.20+.18*math.sin(i*1.7)
-   width=.078+.018*(i%3);verts=[]
-   for j in range(5):
-    t=j/4;z=top+(bottom-top)*t;shift=.016*math.sin(i*2.9+j*1.7)
-    w=width*(1-.68*t)*(.78+.22*math.sin(i+j*2.4)**2)
-    verts.extend(((side*1.342,y+shift-w,z),(side*1.342,y+shift+w*.55,z)))
-   faces=[(2*j,2*j+1,2*j+3,2*j+2) if side<0 else (2*j+2,2*j+3,2*j+1,2*j) for j in range(4)]
-   mesh('cabin rust drip',verts,faces,stain)
+  verts=[];faces=[]
+  for k,window_y in enumerate(side_window_y):
+   for n,offset in enumerate((-.22,-.11,.025,.13,.23)):
+    i=k*5+n;y=window_y+offset
+    top=2.26+.035*math.sin(i*2.1);bottom=1.32+.48*(.5+.5*math.sin(i*1.7))
+    width=.016+.008*(i%3);start=len(verts)
+    for j in range(5):
+     t=j/4;z=top+(bottom-top)*t;shift=.010*math.sin(i*2.9+j*1.7)
+     w=width*(1-.55*t)*(.75+.25*math.sin(i+j*2.4)**2)
+     verts.extend(((side*1.342,y+shift-w,z),(side*1.342,y+shift+w*.55,z)))
+    faces.extend([(start+2*j,start+2*j+1,start+2*j+3,start+2*j+2) if side<0 else (start+2*j+2,start+2*j+3,start+2*j+1,start+2*j) for j in range(4)])
+  mesh('fine cabin rust runs',verts,faces,stain)
  cube('aft cabin door',(0,.93,1.94),(.75,.07,1.3),white,.025)
  cube('aft cabin door dark frame',(0,.879,1.94),(.83,.035,1.38),dark,.014)
  cube('aft cabin door worn panel',(0,.851,1.94),(.73,.032,1.27),white,.012)
@@ -427,7 +441,7 @@ def boat():
   for y,ch,w,h in stations[:-1]:
    for z in (.30,.73):
     ball('hull plate fastener',(side*w*1.072,y,z),(.013,.013,.013),steel,8)
- ring('life ring',(-1.50,1.36,2.05),.28,.08,orange,(0,math.pi/2,0))
+ ring('life ring',(.72,.85,1.72),.28,.08,orange,(math.pi/2,0,0))
  cyl('radar dome',(0,3.12,4.08),.055,1.82,antenna_metal,12)
  cube('radar mast platform',(0,3.12,5.02),(.48,.42,.07),antenna_metal,.015)
  rod('radar short crossbar',(-.37,3.12,4.91),(.37,3.12,4.91),.022,antenna_metal,8)
@@ -861,7 +875,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v73.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v75.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
