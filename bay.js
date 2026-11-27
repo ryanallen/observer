@@ -408,9 +408,15 @@ export function createBay(canvas) {
   const deck = new THREE.PointLight(0xffc98a, 12, 9, 2); deck.position.set(0, 3.6, 2.4); lit.add(deck);
   const cabin = new THREE.PointLight(0xffce9a, 18, 12, 2); cabin.position.set(-3.0, 4.2, -2.2); lit.add(cabin);
   const workPools = [-1.15, 1.15].map(x => {
-    const light = new THREE.SpotLight(0xffb874, 18, 5, .72, .8, 2);
+    const light = new THREE.SpotLight(0xffb874, 30, 5, .72, .8, 2);
     light.position.set(x, 2.2, 6.55);
     light.target.position.set(x, 0, 6.55);
+    lit.add(light, light.target); return light;
+  });
+  const aftPools = [-1.15, 1.15].map(x => {
+    const light = new THREE.SpotLight(0xffc58b, 12, 5.5, .68, .85, 2);
+    light.position.set(x, 2.8, -.7);
+    light.target.position.set(x, 0, -.7);
     lit.add(light, light.target); return light;
   });
   const roofPool = new THREE.PointLight(0xffc992, 2.5, 3.5, 2);
@@ -456,6 +462,14 @@ export function createBay(canvas) {
         const light = workPools[i];
         light.position.copy(boat.worldToLocal(bulb.getWorldPosition(new THREE.Vector3()))).y -= .12;
         light.target.position.copy(light.position).y -= 2.2;
+      });
+      const aftBulbs = [];
+      hull.traverse(o => { if (o.isMesh && /^aft work light/.test(o.name)) aftBulbs.push(o); });
+      aftBulbs.sort((a, b) => a.position.x - b.position.x);
+      aftBulbs.slice(0, 2).forEach((bulb, i) => {
+        const light = aftPools[i];
+        light.position.copy(boat.worldToLocal(bulb.getWorldPosition(new THREE.Vector3()))).y -= .12;
+        light.target.position.copy(light.position).add(new THREE.Vector3(0, -2.7, 1.2));
       });
       const roofBulb = hull.getObjectByName('roof lamp bright core');
       if (roofBulb) roofPool.position.copy(boat.worldToLocal(roofBulb.getWorldPosition(new THREE.Vector3()))).y -= .1;
@@ -555,11 +569,13 @@ export function createBay(canvas) {
     const boatScale = mix(1.14, 1, smooth(.55, .70, d));
     boat.scale.setScalar(boatScale);
     const lightBoost = boatScale * boatScale;
+    const surfacePools = 1 - smooth(0, .02, d);
     flood.intensity = 12 * lightBoost;
     deck.intensity = 12 * lightBoost;
     cabin.intensity = 18 * lightBoost;
-    for (const pool of workPools) pool.intensity = 18 * lightBoost;
-    roofPool.intensity = 2.5 * lightBoost;
+    for (const pool of workPools) pool.intensity = 30 * lightBoost * surfacePools;
+    for (const pool of aftPools) pool.intensity = 12 * lightBoost * surfacePools;
+    roofPool.intensity = 2.5 * lightBoost * surfacePools;
     sideSpill.intensity = 3 * lightBoost;
     const base = boat.userData.base;
     boatCenter.copy(base).multiplyScalar(boatScale).applyAxisAngle(THREE.Object3D.DEFAULT_UP, heading);

@@ -104,7 +104,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b24')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b25')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; return bay; }).catch(e => { console.warn('bay', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
