@@ -147,21 +147,24 @@ function makeWater(renderer, scene, sky, res) {
           warmth /= 1.0 + warmth * 3.0;
           float reflectionReach = min(1.0, screenSize.x / screenSize.y * .55);
           float tallScreen = 1.0 - reflectionReach;
+          float surfaceReflect = 1.0 - step(.1, moonDive);
           float broken = smoothstep(.53, .79, vnoise(wp.xz * vec2(5.7, 9.5) + vec2(0.0, time * .5)));
           float cabinLane = exp(-pow((screenUv.x - cabinScreen.x - .06) / .024, 2.0));
           float lampLane = exp(-pow((screenUv.x - lampScreen.x) / .020, 2.0));
-          float surfaceReflect = 1.0 - step(.1, moonDive);
-          float fallPower = mix(.72, .55, surfaceReflect);
-          float cabinFall = pow(smoothstep(cabinScreen.y - .37 * reflectionReach, cabinScreen.y - .04 * reflectionReach, screenUv.y), fallPower)
+          float fallPower = mix(.72, .75, surfaceReflect);
+          float cabinFall = pow(smoothstep(cabinScreen.y - mix(.37, .23, surfaceReflect) * reflectionReach, cabinScreen.y - .04 * reflectionReach, screenUv.y), fallPower)
                           * (1.0 - smoothstep(cabinScreen.y - .02, cabinScreen.y + .03, screenUv.y));
-          float lampFall = pow(smoothstep(lampScreen.y - .34 * reflectionReach, lampScreen.y - .04 * reflectionReach, screenUv.y), fallPower)
+          float lampFall = pow(smoothstep(lampScreen.y - mix(.34, .22, surfaceReflect) * reflectionReach, lampScreen.y - .04 * reflectionReach, screenUv.y), fallPower)
                          * (1.0 - smoothstep(lampScreen.y - .02, lampScreen.y + .03, screenUv.y));
-          float columns = max(cabinLane * cabinFall, lampLane * lampFall);
+          float columns = max(cabinLane * cabinFall * mix(1.0, 1.5, surfaceReflect), lampLane * lampFall);
           vec2 dashAt = screenUv * vec2(260.0, 500.0) + vec2(fine.x * 1.3 + ripple, time * .5);
-          float dashes = smoothstep(.55, .80, vnoise(dashAt)) * columns;
-          vec3 warmTint = mix(vec3(1.0, .60, .30), vec3(1.0, .63, .38), surfaceReflect);
-          col += warmTint * (warmth * columns * mix(1.4, 4.5, surfaceReflect) * (.08 + .92 * broken) * (1.0 - .45 * tallScreen)
-                           + dashes * mix(.28, .24, surfaceReflect));
+          vec2 roundAt = screenUv * vec2(220.0, 400.0) + vec2(fine.x * .8 + ripple * .5, time * .35);
+          float dashMask = smoothstep(.55, .80, vnoise(dashAt));
+          float roundedMask = smoothstep(.46, .72, vnoise(roundAt));
+          float dashes = mix(dashMask, roundedMask, surfaceReflect) * columns;
+          vec3 warmTint = mix(vec3(1.0, .60, .30), vec3(1.0, .58, .28), surfaceReflect);
+          col += warmTint * (warmth * columns * mix(1.4, 4.8, surfaceReflect) * (.08 + .92 * broken) * (1.0 - .45 * tallScreen)
+                           + dashes * mix(.28, .38, surfaceReflect));
           // Moonlight breaks into irregular soft flecks along moving crests.
           float upper = smoothstep(.16, .52, screenUv.y);
           float width = mix(.025, .070, smoothstep(.30, 1.0, screenUv.y));
