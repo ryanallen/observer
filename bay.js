@@ -178,13 +178,14 @@ function makeWater(renderer, scene, sky, res) {
           float crestGlint = .3 + .7 * smoothstep(-.15, .27, wp.y);
           float topLight = .35 + 4.0 * smoothstep(.58, .80, screenUv.y)
                          - 1.0 * smoothstep(.90, 1.0, screenUv.y);
+          topLight = mix(topLight, .65 + .8 * smoothstep(.45, .95, screenUv.y), moonDive);
           float moonStop = mix(1.0, smoothstep(lampScreen.y - .02, lampScreen.y + .14, screenUv.y),
                                smoothstep(.20, .60, tallScreen) * (1.0 - moonDive));
           col += moonColor * lane * upper * fleck * crestGlint * topLight * .35 * moonStop * (1.0 - .55 * moonDive);
           float farFlecks = smoothstep(.18, .70, screenUv.y)
                            * smoothstep(.34 + .12 * topThin + .16 * moonDive,
                                         .58 + .12 * topThin + .15 * moonDive, facets) * (.25 + .75 * moonCrest);
-          col += moonColor * lane * farFlecks * 1.2 * moonStop * (1.0 - .55 * moonDive);
+          col += moonColor * lane * farFlecks * mix(1.2, .50, moonDive) * moonStop * (1.0 - .55 * moonDive);
           float submergedLamp = 1.0 - step(-0.1, lampPos.y);
           float shallowLamp = submergedLamp * exp(-max(-lampPos.y, 0.0) * .16);
           float underTransmission = shallowLamp * exp(-dot(wp.xz - lampPos.xz, wp.xz - lampPos.xz) / 1.2);
@@ -555,7 +556,7 @@ export function createBay(canvas) {
     coneMat.uniforms.amt.value = under * (1 - deep * .55);
     snowMat.uniforms.amt.value = under * camUnder * (1 - deep * .4);
     snowMat.uniforms.lampPos.value.copy(lampPos); snowMat.uniforms.time.value = time;
-    wu.lampPos.value.copy(lampPos); wu.lampPow.value = 1 - deep; wu.time.value = time; wu.moonDive.value = smooth(0, .045, d);
+    wu.lampPos.value.copy(lampPos); wu.lampPow.value = 1 - deep; wu.time.value = time; wu.moonDive.value = d > 0 ? .75 + .25 * smooth(0, .045, d) : 0;
     if (buoy) {
       const x = buoy.position.x, z = buoy.position.z;
       buoy.position.y = waveHeight(x, z, time);
@@ -582,7 +583,7 @@ export function createBay(canvas) {
     focusAt.y += (wantedFocusY - focusAt.y) * pointerEase * .7;
     focus.uniforms.focusUv.value.copy(focusAt);
     const surface = 1 - smooth(0, .18, d);
-    focus.uniforms.amount.value = surface * (pointerActive ? 1 : .30);
+    focus.uniforms.amount.value = surface * (d > 0 ? .30 : pointerActive ? 1 : .30);
     const free = 1 - smooth(0, .3, d) * .7;
     const yaw = Math.PI / 4 + look.sx * .5 * free * (1 - surface) + d * .9;
     const pitch = mix(.54, .3, smooth(.3, .6, d)) + mix(0, .55, smooth(.2, 1, fl)) - look.sy * .12 * free * (1 - surface);
