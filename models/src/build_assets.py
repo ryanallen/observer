@@ -13,7 +13,7 @@ def mat(n,c,m=0,r=.6,e=None):
  p.inputs['Base Color'].default_value=(*c,1);p.inputs['Metallic'].default_value=m;p.inputs['Roughness'].default_value=r
  if e:p.inputs['Emission Color'].default_value=(*e,1);p.inputs['Emission Strength'].default_value=3
  return a
-white=mat('hull warm white',(.69,.73,.72),.15,.5);red=mat('antifouling red',(.22,.03,.02),.1,.75)
+white=mat('hull warm white',(.69,.73,.72),.15,.5);red=mat('antifouling red',(.13,.024,.018),.1,.86)
 navy=mat('survey hull midnight blue',(.018,.053,.082),.27,.51)
 navy_hull=mat('survey hull weathered vertex paint',(.018,.053,.082),.27,.56)
 vc=navy_hull.node_tree.nodes.new('ShaderNodeVertexColor');vc.layer_name='PaintVariation'
@@ -60,8 +60,8 @@ def boat_paint_texture(material,kind,base,seed):
   fx=fx*fx*(3-2*fx);fy=fy*fy*(3-2*fy)
   a=g[iy*n+ix];b=g[iy*n+(ix+1)%n];c=g[((iy+1)%n)*n+ix];d=g[((iy+1)%n)*n+(ix+1)%n]
   return (a*(1-fx)+b*fx)*(1-fy)+(c*(1-fx)+d*fx)*fy
- drips=[(rng.random(),rng.uniform(.57,.82),rng.uniform(.12,.38),rng.uniform(.004,.016)) for _ in range(27 if kind=='hull' else 22 if kind=='white' else 10)]
- if kind=='hull':drips += [((y+7)/14,.72,.38,.023) for y in (-5.8,-4.5,-3.2,-1.9,.7,1.8,2.8,3.8,4.8)]
+ drips=[(rng.random(),rng.uniform(.57,.82),rng.uniform(.12,.38),rng.uniform(.003,.011)) for _ in range(18 if kind=='hull' else 22 if kind=='white' else 10)]
+ if kind=='hull':drips += [((y+7)/14,.72,.27,.013) for y in (-5.1,-2.3,.65,3.7)]
  pixels=[];orm=[]
  rough={'hull':.83,'white':.85,'deck':.57,'orange':.79,'steel':.63,'red':.88}[kind]
  metal={'hull':.24,'white':.06,'deck':.11,'orange':.22,'steel':.58,'red':.12}[kind]
@@ -79,11 +79,11 @@ def boat_paint_texture(material,kind,base,seed):
    wear=max(0.0,c-.66)*2.0
    if kind=='hull':
     rust=max(rust, max(0.0,.30-v)*2.2*(.4+b))
-    worn=(.28,.35,.35);oxide=(.43,.16,.063)
+    worn=(.34,.37,.36);oxide=(.36,.14,.055);rust*=.57
     scrape=math.exp(-((v-.38)/.022)**2)*max(0,b-.43)*2.1
     wear=max(wear,min(.9,scrape))
    elif kind=='white':
-    worn=(.39,.40,.37);oxide=(.34,.18,.085);rust*=.93
+    worn=(.39,.40,.37);oxide=(.34,.17,.075);rust*=1.4
     corner=max(0,.085-min(u,1-u,v,1-v))/.085
     rust=max(rust,corner*(.26+.28*b),max(0,b-.54)*.44)
    elif kind=='deck':
@@ -169,25 +169,8 @@ def boat_planar_uv(obj):
    layer.data[index].uv=uv
 
 def boat_window_texture():
- size=256;pixels=[];rng=random.Random(29)
- for j in range(size):
-  v=j/(size-1)
-  for i in range(size):
-   u=i/(size-1)
-   edge=min(u,1-u,v,1-v)
-   border=max(0,min(1,edge*20))
-   glow=.56+.14*math.sin(u*8.2+v*3.1)+.09*math.sin(u*27-v*11)
-   shade=.42 if v<.28 and (int(u*9)%3!=1) else 1.0
-   shade*=.52 if .65<u<.69 and v<.8 else 1.0
-   shade*=.72 if v>.82 else 1.0
-   grit=.72+.28*rng.random()
-   k=max(.045,glow*border*shade*grit)
-   pixels.extend((k,min(1,k*.69),min(1,k*.31),1))
- image=bpy.data.images.new('boat warm cabin interior',width=size,height=size,alpha=True)
- image.pixels.foreach_set(pixels)
+ # Four distinct interior panes sampled from the approved scene image.
  path=os.path.join(ROOT,'src','boat_window_color_256.jpg')
- image.filepath_raw=path;image.file_format='JPEG';image.save()
- bpy.data.images.remove(image)
  image=bpy.data.images.load(path);image.pack()
  p=glass.node_tree.nodes.get('Principled BSDF')
  tex=glass.node_tree.nodes.new('ShaderNodeTexImage');tex.image=image
@@ -195,8 +178,8 @@ def boat_window_texture():
  glass.node_tree.links.new(tex.outputs['Color'],p.inputs['Emission Color'])
  p.inputs['Emission Strength'].default_value=.7
 
-def window_uv(obj):
- """Give every pane a whole interior image rather than a cube-atlas fragment."""
+def window_uv(obj,tile=0):
+ """Give each pane a distinct lit interior from the four-pane atlas."""
  layer=obj.data.uv_layers.active
  if layer is None:layer=obj.data.uv_layers.new(name='cabin interior UV')
  for loop in obj.data.loops:
@@ -204,7 +187,8 @@ def window_uv(obj):
   if obj.dimensions.x<obj.dimensions.y:
    u=co.y/max(.001,obj.dimensions.y)+.5
   else:u=co.x/max(.001,obj.dimensions.x)+.5
-  layer.data[loop.index].uv=(u,co.z/max(.001,obj.dimensions.z)+.5)
+  v=co.z/max(.001,obj.dimensions.z)+.5
+  layer.data[loop.index].uv=((u+(tile%2))*.5,(v+(tile//2))*.5)
 
 def boat():
  white.name='weathered offwhite superstructure';navy_hull.name='survey hull textured blue paint'
@@ -252,15 +236,15 @@ def boat():
  # Wheelhouse, raked forward glazing, and roof overhang.
  cube('forward wheelhouse',(0,2.82,1.79),(2.65,3.70,1.45),white,.07)
  cube('overhanging roof',(0,2.8,3.02),(3.08,4.13,.18),white,.10)
- for x in (-.83,0,.83):
+ for i,x in enumerate((-.83,0,.83)):
   w=cube('raked windscreen',(x,4.705,2.47),(.72,.035,.66),glass,.014)
-  window_uv(w);w.rotation_euler[0]=math.radians(12)
+  window_uv(w,(i+1)%4);w.rotation_euler[0]=math.radians(12)
  for side in (-1,1):
   o=cube('wrapped raked corner window',(side*1.24,4.52,2.47),(.34,.035,.61),glass,.01)
-  window_uv(o);o.rotation_euler=(math.radians(12),0,side*math.radians(42))
+  window_uv(o,3 if side<0 else 1);o.rotation_euler=(math.radians(12),0,side*math.radians(42))
  for x in (-1.33,1.33):
-  for y in (1.49,2.32,3.15,3.98):
-   w=cube('side window',(x,y,2.47),(.038,.64,.58),glass,.006);window_uv(w)
+  for i,y in enumerate((1.49,2.32,3.15,3.98)):
+   w=cube('side window',(x,y,2.47),(.038,.64,.58),glass,.006);window_uv(w,i)
    for edge in (-.33,.33):cube('black side window mullion',(x*1.018,y+edge,2.47),(.018,.025,.64),dark,.003)
    for edge in (-.30,.30):cube('window horizontal frame',(x*1.018,y,2.47+edge),(.018,.68,.022),dark,.003)
  cube('aft cabin door',(0,.93,1.94),(.75,.07,1.3),white,.025)
@@ -737,7 +721,7 @@ cube('preview floor',(0,0,-.22 if NAME in ('boat','buoy') else -.04),(80,80,.07)
 def area(n,loc,power,color,size,target):
  d=bpy.data.lights.new(n,'AREA');d.energy=power;d.color=color;d.shape='DISK';d.size=size
  o=bpy.data.objects.new(n,d);bpy.context.collection.objects.link(o);o.location=loc;o.rotation_euler=(Vector(target)-o.location).to_track_quat('-Z','Y').to_euler()
-if NAME=='boat':cam=(-27,-11,16);target=(0,0,1.5);size=17.5;lights=[((-5,-4,12),2150,(.48,.58,.72),8),((1,-4,8),920,(1,.58,.31),5)]
+if NAME=='boat':cam=(-27,-11,16);target=(0,0,1.5);size=17.5;lights=[((-5,-4,12),2150,(.48,.58,.72),8),((1,-4,8),920,(1,.58,.31),5),((-8,1,4),660,(1,.70,.47),6)]
 elif NAME=='buoy':cam=(5,-7,6);target=(0,0,1.2);size=5.4;lights=[((3,-3,7),1300,(.36,.53,1),5),((-3,1,5),650,(1,.42,.25),4)]
 elif NAME=='box':cam=(.7,-.8,.65);target=(0,0,.11);size=.86;lights=[((1,-2,3),160,(.30,.47,.7),2.5),((-1,1,2),220,(1,.72,.42),1.6),((1,-1,1.8),95,(.42,.57,.72),2.2)]
 else:cam=(7,-9,7);target=(0,0,.15);size=8;lights=[((2,-3,7),1100,(.30,.50,.71),6),((-3,1,4),900,(1,.7,.43),4)]
@@ -750,7 +734,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v2.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v5.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
