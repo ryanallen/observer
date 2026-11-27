@@ -18,6 +18,8 @@ roof=mat('weathered offwhite wheelhouse roof',(.48,.51,.55),.08,.78)
 radar_white=mat('radar white enamel',(.90,.91,.88),.02,.55,(.25,.27,.26))
 radar_white.node_tree.nodes.get('Principled BSDF').inputs['Emission Strength'].default_value=.55
 antenna_metal=mat('pale antenna steel',(.52,.54,.53),.3,.57)
+gunwale_steel=mat('pale worn gunwale steel',(.62,.63,.58),.45,.52,(.32,.30,.25))
+gunwale_steel.node_tree.nodes.get('Principled BSDF').inputs['Emission Strength'].default_value=.22
 navy=mat('survey hull midnight blue',(.018,.053,.082),.27,.51)
 navy_hull=mat('survey hull weathered vertex paint',(.018,.053,.082),.27,.56)
 vc=navy_hull.node_tree.nodes.new('ShaderNodeVertexColor');vc.layer_name='PaintVariation'
@@ -305,7 +307,7 @@ def boat():
  for side in (-1,1):
   for a,b in zip(stations[:-1],stations[1:]):
    y0,ch0,w0,h0=a;y1,ch1,w1,h1=b
-   rod('black rubbing strake',(side*w0,y0,h0-.10),(side*w1,y1,h1-.10),.048,dark,8)
+   rod('pale rubbing strake',(side*w0,y0,h0-.10),(side*w1,y1,h1-.10),.052,gunwale_steel,8)
   forward=[s for s in stations if s[0]>=1.0]
   def bow_rise(y):return max(0.0,min(1.0,(y-2.5)/4.1))
   def bow_edge(s):
@@ -315,7 +317,7 @@ def boat():
    y0,ch0,w0,h0=a;y1,ch1,w1,h1=b
    mesh('forward bulwark',[(side*w0,y0,h0),(side*w1,y1,h1),bow_edge(b),bow_edge(a)],[(0,1,2,3)] if side==1 else [(3,2,1,0)],navy)
   for a,b in zip(forward[:-1],forward[1:]):
-   rod('raised bow gunwale',bow_edge(a),bow_edge(b),.040,steel,8)
+   rod('raised bow gunwale',bow_edge(a),bow_edge(b),.040,gunwale_steel,8)
   rail_stations=[min(forward,key=lambda s:abs(s[0]-y)) for y in (3.0,4.0,5.0,5.9,6.6,6.95)]
   rail_points=[]
   for s in rail_stations:
@@ -875,7 +877,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v76.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v77.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
