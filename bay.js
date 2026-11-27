@@ -141,8 +141,8 @@ function makeWater(renderer, scene, sky, res) {
           float shortStreak = smoothstep(.13, .31, screenUv.y);
           col += vec3(1.0, .51, .19) * warmth * (.06 + .94 * broken) * nearby * shortStreak * 3.0;
           // Moonlight breaks into irregular soft flecks along moving crests.
-          float upper = smoothstep(.21, .80, screenUv.y);
-          float width = mix(.042, .14, smoothstep(.38, 1.0, screenUv.y));
+          float upper = smoothstep(.16, .52, screenUv.y);
+          float width = mix(.052, .11, smoothstep(.32, 1.0, screenUv.y));
           float centre = .54 + .018 * (vnoise(wp.xz * .13) - .5);
           width *= .80 + .40 * vnoise(wp.xz * .08 + vec2(time * .02));
           float lane = exp(-pow((screenUv.x - centre) / width, 2.0));
@@ -156,13 +156,18 @@ function makeWater(renderer, scene, sky, res) {
           vec3 moonWideB = normalize(vec3(moonDir.x + .12, moonDir.y - .18, moonDir.z));
           spec += pow(max(dot(v, reflect(-moonWideA, fine)), 0.0), 780.0) * .34;
           spec += pow(max(dot(v, reflect(-moonWideB, fine)), 0.0), 780.0) * .34;
+          vec3 moonHigh = normalize(vec3(moonDir.x - .18, moonDir.y + .44, moonDir.z));
+          vec3 moonLow = normalize(vec3(moonDir.x + .15, moonDir.y - .30, moonDir.z));
+          spec += pow(max(dot(v, reflect(-moonHigh, fine)), 0.0), 780.0) * .30;
+          spec += pow(max(dot(v, reflect(-moonLow, fine)), 0.0), 780.0) * .30;
           float fleck = spec * smoothstep(.23, .48, facets) * (.30 + .70 * longCrest);
           float crestGlint = .3 + .7 * smoothstep(-.15, .27, wp.y);
-          float topLight = .35 + 2.7 * smoothstep(.55, 1.0, screenUv.y);
-          col += moonColor * lane * upper * fleck * crestGlint * topLight * 1.42;
-          float farFlecks = smoothstep(.76, 1.0, screenUv.y)
+          float topLight = .35 + 4.0 * smoothstep(.58, .80, screenUv.y)
+                         - 1.0 * smoothstep(.90, 1.0, screenUv.y);
+          col += moonColor * lane * upper * fleck * crestGlint * topLight * 2.3;
+          float farFlecks = smoothstep(.38, .80, screenUv.y)
                            * smoothstep(.34, .58, facets) * (.25 + .75 * longCrest);
-          col += moonColor * lane * farFlecks * .55;
+          col += moonColor * lane * farFlecks * .60;
           float submergedLamp = 1.0 - step(-0.1, lampPos.y);
           float shallowLamp = submergedLamp * exp(-max(-lampPos.y, 0.0) * .16);
           float underTransmission = shallowLamp * exp(-dot(wp.xz - lampPos.xz, wp.xz - lampPos.xz) / 1.2);
@@ -544,7 +549,7 @@ export function createBay(canvas) {
     focusAt.y += (wantedFocusY - focusAt.y) * pointerEase * .7;
     focus.uniforms.focusUv.value.copy(focusAt);
     const surface = 1 - smooth(0, .18, d);
-    focus.uniforms.amount.value = surface;
+    focus.uniforms.amount.value = surface * (pointerActive ? 1 : .30);
     const free = 1 - smooth(0, .3, d) * .7;
     const yaw = Math.PI / 4 + look.sx * .5 * free * (1 - surface) + d * .9;
     const pitch = mix(.54, .3, smooth(.3, .6, d)) + mix(0, .55, smooth(.2, 1, fl)) - look.sy * .12 * free * (1 - surface);
