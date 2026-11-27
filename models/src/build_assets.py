@@ -372,20 +372,32 @@ def boat():
   w=cube('aft corner window',(x,.949,2.49),(.49,.038,.78),glass,.006);window_uv(w,i+1)
   for edge in (-.255,.255):cube('aft window mullion',(x+edge,.925,2.49),(.019,.018,.82),dark,.003)
   for edge in (-.40,.40):cube('aft window horizontal frame',(x,.925,2.49+edge),(.53,.018,.02),dark,.003)
- stain=mat('cabin rust runoff',(.42,.125,.032),.02,.91)
+ stain=mat('deep brown cabin rust runoff',(.31,.13,.055),.02,.93)
+ rust_edge=mat('faded cabin rust feather',(.53,.32,.20),.0,.96)
  for side in (-1,1):
-  verts=[];faces=[]
+  rng=random.Random(286+(side+1)*13)
+  anchors=[]
   for k,window_y in enumerate(side_window_y):
-   for n,offset in enumerate((-.22,-.11,.025,.13,.23)):
-    i=k*5+n;y=window_y+offset
-    top=2.26+.035*math.sin(i*2.1);bottom=1.32+.48*(.5+.5*math.sin(i*1.7))
-    width=.016+.008*(i%3);start=len(verts)
-    for j in range(5):
-     t=j/4;z=top+(bottom-top)*t;shift=.010*math.sin(i*2.9+j*1.7)
-     w=width*(1-.55*t)*(.75+.25*math.sin(i+j*2.4)**2)
-     verts.extend(((side*1.342,y+shift-w,z),(side*1.342,y+shift+w*.55,z)))
-    faces.extend([(start+2*j,start+2*j+1,start+2*j+3,start+2*j+2) if side<0 else (start+2*j+2,start+2*j+3,start+2*j+1,start+2*j) for j in range(4)])
-  mesh('fine cabin rust runs',verts,faces,stain)
+   for n in range((3,5,2,4)[k]):
+    y=window_y+rng.uniform(-.28,.28)
+    top=2.26+rng.uniform(-.035,.09)
+    bottom=rng.uniform(1.06,1.92)
+    width=rng.uniform(.011,.032) if n else rng.uniform(.038,.068)
+    anchors.append((y,top,bottom,width))
+  anchors.append((window_y+.32,2.54,rng.uniform(1.19,1.75),rng.uniform(.014,.030)))
+  for layer,material,spread in (('faded',rust_edge,1.7),('dark',stain,1.0)):
+   verts=[];faces=[]
+   for i,(y,top,bottom,width) in enumerate(anchors):
+    start=len(verts);bend=rng.uniform(.006,.023);phase=rng.uniform(0,6.28)
+    for j in range(6):
+     t=j/5;z=top+(bottom-top)*t
+     shift=bend*math.sin(phase+t*7.0)+.008*t*math.sin(i*3.4)
+     taper=max(.04,(1-t)**(.42+.25*(i%3)))
+     w=width*spread*taper*(.72+.28*math.sin(phase+t*9.0)**2)
+     x=side*(1.346 if layer=='dark' else 1.344)
+     verts.extend(((x,y+shift-w,z),(x,y+shift+w*.7,z)))
+    faces.extend([(start+2*j,start+2*j+1,start+2*j+3,start+2*j+2) if side<0 else (start+2*j+2,start+2*j+3,start+2*j+1,start+2*j) for j in range(5)])
+   mesh(layer+' irregular cabin rust runs',verts,faces,material)
  cube('aft cabin door',(0,.93,1.94),(.75,.07,1.3),white,.025)
  cube('aft cabin door dark frame',(0,.879,1.94),(.83,.035,1.38),dark,.014)
  cube('aft cabin door worn panel',(0,.851,1.94),(.73,.032,1.27),white,.012)
@@ -888,7 +900,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v80.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v82.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
