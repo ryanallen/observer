@@ -15,6 +15,8 @@ def mat(n,c,m=0,r=.6,e=None):
  return a
 white=mat('hull warm white',(.69,.73,.72),.15,.5);red=mat('antifouling red',(.13,.024,.018),.1,.86)
 roof=mat('weathered offwhite wheelhouse roof',(.48,.51,.55),.08,.78)
+roof_edge=mat('worn pale wheelhouse roof edge',(.58,.57,.52),.12,.75,(.20,.19,.16))
+roof_edge.node_tree.nodes.get('Principled BSDF').inputs['Emission Strength'].default_value=.28
 radar_white=mat('radar white enamel',(.90,.91,.88),.02,.55,(.25,.27,.26))
 radar_white.node_tree.nodes.get('Principled BSDF').inputs['Emission Strength'].default_value=.55
 antenna_metal=mat('pale antenna steel',(.52,.54,.53),.3,.57)
@@ -336,8 +338,12 @@ def boat():
  # Wheelhouse, raked forward glazing, and close-fitting roof.
  cube('forward wheelhouse',(0,2.82,1.79),(2.65,3.70,1.45),white,.07)
  cube('wheelhouse roof',(0,2.82,3.02),(2.71,3.76,.18),roof,.03)
- for x in (-1.34,1.34):cube('raised roof side lip',(x,2.82,3.17),(.065,3.78,.12),roof,.012)
- for y in (.94,4.70):cube('raised roof end lip',(0,y,3.17),(2.72,.065,.12),roof,.012)
+ for x in (-1.34,1.34):
+  cube('pale wheelhouse side fascia',(x,2.82,3.04),(.055,3.78,.15),roof_edge,.01)
+  cube('raised roof side lip',(x,2.82,3.17),(.065,3.78,.12),roof_edge,.012)
+ for y in (.94,4.70):
+  cube('pale wheelhouse end fascia',(0,y,3.04),(2.72,.055,.15),roof_edge,.01)
+  cube('raised roof end lip',(0,y,3.17),(2.72,.065,.12),roof_edge,.012)
  for i,x in enumerate((-.83,0,.83)):
   w=cube('raked windscreen',(x,4.705,2.47),(.72,.035,.66),glass,.014)
   window_uv(w,(i+1)%4);w.rotation_euler[0]=math.radians(12)
@@ -882,7 +888,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v79.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v80.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
