@@ -20,6 +20,8 @@ radar_white.node_tree.nodes.get('Principled BSDF').inputs['Emission Strength'].d
 antenna_metal=mat('pale antenna steel',(.52,.54,.53),.3,.57)
 gunwale_steel=mat('pale worn gunwale steel',(.62,.63,.58),.45,.52,(.32,.30,.25))
 gunwale_steel.node_tree.nodes.get('Principled BSDF').inputs['Emission Strength'].default_value=.22
+bulwark_inside=mat('worn pale inner bow bulwark',(.47,.46,.42),.08,.82,(.14,.13,.11))
+bulwark_inside.node_tree.nodes.get('Principled BSDF').inputs['Emission Strength'].default_value=.20
 navy=mat('survey hull midnight blue',(.018,.053,.082),.27,.51)
 navy_hull=mat('survey hull weathered vertex paint',(.018,.053,.082),.27,.56)
 vc=navy_hull.node_tree.nodes.new('ShaderNodeVertexColor');vc.layer_name='PaintVariation'
@@ -316,6 +318,9 @@ def boat():
   for a,b in zip(forward[:-1],forward[1:]):
    y0,ch0,w0,h0=a;y1,ch1,w1,h1=b
    mesh('forward bulwark',[(side*w0,y0,h0),(side*w1,y1,h1),bow_edge(b),bow_edge(a)],[(0,1,2,3)] if side==1 else [(3,2,1,0)],navy)
+   inner=lambda point:(point[0]-side*.035,point[1],point[2])
+   inside=[inner((side*w0,y0,h0)),inner((side*w1,y1,h1)),inner(bow_edge(b)),inner(bow_edge(a))]
+   mesh('pale inner bow bulwark',inside,[(3,2,1,0)] if side==1 else [(0,1,2,3)],bulwark_inside)
   for a,b in zip(forward[:-1],forward[1:]):
    rod('raised bow gunwale',bow_edge(a),bow_edge(b),.040,gunwale_steel,8)
   rail_stations=[min(forward,key=lambda s:abs(s[0]-y)) for y in (3.0,4.0,5.0,5.9,6.6,6.95)]
@@ -877,7 +882,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v77.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v79.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
