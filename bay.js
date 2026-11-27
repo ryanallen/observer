@@ -12,6 +12,8 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
 const SEABED = -44;          // the deepest channel, in metres
+const BOX_SCALE = 3.5;       // the box is 220 mm across; drawn at the size the floor shot was framed for
+const BOX_SINK = .4;         // how far its foot sits under the silt, so it is half buried
 const HANG = 2.3;            // the cable's length while the lamp waits over the water
 const LAMP_COLOR = new THREE.Color(1.0, 0.78, 0.54);
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -548,7 +550,19 @@ export function createBay(canvas) {
   ]);
   // the casket and the seabed are only seen at the bottom of the dive: they load after the surface is up
   ready.then(() => Promise.allSettled([
-    loader.loadAsync('models/web/box.glb').then(gl => { box = gl.scene; dress(box); box.position.set(.35, SEABED + floorY(.35, .45) - .1, .45); box.rotation.set(.08, .7, -.05); box.scale.setScalar(1.6); box.visible = false; scene.add(box); }),
+    // the box, closed, tilted and half sunk in the silt, with the stone still inside it
+    Promise.all([loader.loadAsync('models/web/box_cd.glb'), loader.loadAsync('models/web/stone.glb')]).then(([gb, gs]) => {
+      const b = gb.scene; dress(b);
+      b.traverse(o => { if (o.isMesh && o.material.name === 'box_lid_filigree') { o.material.side = THREE.DoubleSide; o.material.alphaTest = o.material.alphaTest || .5; o.material.transparent = false; } });
+      const seat = b.getObjectByName('gem_seat'), glowAt = b.getObjectByName('gem_glow');
+      const g = gs.scene; g.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; gemMat = o.material; } });
+      (seat || b).add(g);
+      gemLight = new THREE.PointLight(0xff2408, 0, 3.2, 2); (glowAt || seat || b).add(gemLight);
+      b.position.set(.35, SEABED + floorY(.35, .45) - BOX_SINK, .45); b.rotation.set(.14, .7, -.1); b.scale.setScalar(BOX_SCALE);
+      b.visible = false; scene.add(b); b.updateMatrixWorld(true);
+      (glowAt || seat || b).getWorldPosition(motes.position);
+      box = b;
+    }),
     loader.loadAsync('models/web/seabed.glb').then(gl => {
       dress(gl.scene); gl.scene.traverse(o => { if (o.isMesh) o.material.color.multiplyScalar(.5); });   // 44 m down, the rust has no colour left to speak of
       gl.scene.position.set(-3.2, 0, 1.2); gl.scene.rotation.y = 2.2; props.add(gl.scene); props.updateMatrixWorld(true);
@@ -556,7 +570,33 @@ export function createBay(canvas) {
       for (const o of [...gl.scene.children]) { const w = o.getWorldPosition(new THREE.Vector3()); o.position.y += floorY(w.x, w.z) - .04; }
     }),
   ]));
-  let buoy = null, box = null;
+  let buoy = null, box = null, gemMat = null, gemLight = null;
+  // red-orange motes rising off the stone through the lid, each on its own slow drift
+  const motes = (() => {
+    const n = 150, seed = new Float32Array(n), pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) seed[i] = Math.random();
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('seed', new THREE.BufferAttribute(seed, 1));
+    const m = new THREE.Points(geo, new THREE.ShaderMaterial({
+      uniforms: { time: { value: 0 }, glow: { value: 0 }, rise: { value: .95 * BOX_SCALE / 3.5 }, px: { value: 1 } },
+      vertexShader: `attribute float seed; uniform float time, rise, px; varying float vA;
+        void main() {
+          float age = fract(time * (.06 + .05 * fract(seed * 7.13)) + seed);
+          float a = seed * 40.0 + time * (.3 + .4 * fract(seed * 3.7));
+          float r = (.02 + .16 * age) * rise * (.4 + fract(seed * 5.3));
+          vec3 p = position + vec3(cos(a) * r, age * rise, sin(a) * r);
+          vA = sin(3.14159 * age) * (.4 + .6 * fract(seed * 11.7));
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          gl_PointSize = px * (2.0 + 4.0 * fract(seed * 13.1)) * (8.0 / -mv.z);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `uniform float glow; varying float vA;
+        void main() { float d = length(gl_PointCoord - .5); float k = smoothstep(.5, .0, d);
+          gl_FragColor = vec4(vec3(1.0, .36, .08) * k * vA * glow * 2.2, 1.0); }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+    }));
+    m.frustumCulled = false; m.visible = false; scene.add(m); return m;
+  })();
   const buoyLight = new THREE.PointLight(0xff3020, 0, 14, 2); buoyLight.position.set(-34, 3.4, 22); scene.add(buoyLight);
 
   // ---- post: bloom on the lights, a little grain and a vignette ----
@@ -840,6 +880,13 @@ export function createBay(canvas) {
     buoyLight.intensity = (time % 4 < .5 ? 12 : 0) * (1 - camUnder);
     if (buoy) buoy.traverse(o => { if (o.isMesh && /buoy_light/.test(o.name + (o.material.name || ''))) o.material.emissiveIntensity = time % 4 < .5 ? 10 : .2; });
     if (box) box.visible = fl > .05;
+    // the stone glows faintly through the pierced lid, breathing, and sheds motes
+    const gemGlow = smooth(.2, 1, fl) * (.5 + .12 * Math.sin(time * 1.3) + .06 * Math.sin(time * 3.7 + 1));
+    if (gemMat) gemMat.emissiveIntensity = gemGlow * 4;
+    if (gemLight) gemLight.intensity = gemGlow * 3;
+    motes.visible = !!box && fl > .05;
+    motes.material.uniforms.time.value = time; motes.material.uniforms.glow.value = gemGlow;
+    motes.material.uniforms.px.value = renderer.getPixelRatio() * renderer.domElement.clientHeight / 900;
 
     // the camera
     const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
