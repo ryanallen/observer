@@ -124,10 +124,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b50')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b51')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
-  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b50')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b51')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
@@ -750,8 +750,16 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     while (bay.st.zoom < .96) await wait(50);
     S.ring = 0; $('place').classList.remove('on');
     // one continuous descent: both lines are said from the moment the lamp hits the water, and it reaches the floor just after them
-    const diveMs = 17000, dive0 = performance.now();
-    tweenOn(bay.st, 'dive', 1, diveMs, k => k);
+    // the dive runs on its own clock, but if the floor is not ready by 90% it holds there while the lamp keeps creeping
+    // down, and goes on (and the clock with it) once the floor is ready
+    const diveMs = 17000; let dive0 = performance.now(), heldAt = 0;
+    (function diveStep(now) {
+      let k = (now - dive0) / diveMs;
+      if (k > .9 && !bay.floorReady) { if (!heldAt) heldAt = now; bay.st.creep = 1 - Math.exp(-(now - heldAt) / 9000); k = .9; }
+      else if (heldAt) { dive0 += now - heldAt; heldAt = 0; k = (now - dive0) / diveMs; }
+      bay.st.dive = Math.min(1, k);
+      if (k < 1) requestAnimationFrame(diveStep);
+    })(dive0);
     descentSound();
     // as the view itself goes under: a wash of water and a burst of bubbles, and the splash again, softer and shorter
     (async () => {
@@ -763,6 +771,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     while (bay.lampY > 0) await wait(30);
     await say('In 1935, Dr Dexter sank the Shining Trapezohedron here.', 5200);
     await say('Now his great-granddaughter has come for it.', 5600);
+    while (!bay.floorReady) await wait(100);
     const left = Math.max(2500, diveMs - (performance.now() - dive0));
     tweenOn(bay.st, 'floor', 1, left);
     await wait(left);
@@ -774,11 +783,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     S.ring = 0;
     tweenOn(bay.st, 'close', 1, 3200);
     await tweenOn(bay.st, 'stone', 1, 3200);
-    // resting on the stone (after leaving it and coming back) floods the view with ink, slow at first, then all at once
-    let seen = false;
-    (async () => { await wait(7000); while (!seen) { tip('observe', howTo, 4500); await wait(16000); } })();
-    await waitHold(); seen = true; hideTip('observe');
-    S.ring = 0;
+    // as the view settles on the stone the ink floods in by itself, slow at first, then all at once
     // the lab loads while the ink closes; the sea's sound goes down with the light
     const labReady = loadLab();
     fade('deep', 0, 3200);

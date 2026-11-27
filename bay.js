@@ -875,7 +875,8 @@ export function createBay(canvas) {
   addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') cameraPointerActive = false; });
   document.addEventListener('mouseleave', e => { cameraPointerActive = false; if (e.pointerType !== 'touch') pointerActive = false; });
   let underD = null;
-  const st = { dive: 0, diveArmed: false, floor: 0, close: 0, stone: 0, fade: 0, zoom: 0, zoomTarget: 0 };
+  const runAt = e => e <= .85 ? e : .85 + (e - .85) - (e - .85) * (e - .85) / .3;
+  const st = { dive: 0, diveArmed: false, floor: 0, close: 0, stone: 0, creep: 0, fade: 0, zoom: 0, zoomTarget: 0 };
   let ledDive = false;
   const tgt = new THREE.Vector3(0, HANG, 0), lampPos = new THREE.Vector3(), viewAim = new THREE.Vector3();
   const cableEnd = new THREE.Vector3(), cableAxis = new THREE.Vector3(), boatCenter = new THREE.Vector3(), reflectionAnchor = new THREE.Vector3();
@@ -943,7 +944,9 @@ export function createBay(canvas) {
     const e = d;
     // one descent from the surface to just above the floor: a steady speed that only eases off near the bottom
     const run = e <= .85 ? e : .85 + (e - .85) - (e - .85) * (e - .85) / .3;
-    const ly = mix(top.y - HANG, SEABED + 2.2, run / .925);
+    // while the floor is still loading the lamp keeps sinking, slower and slower, never stopping: the descent is the load
+    const held = runAt(.9) / .925, creepTo = held + (.985 - held) * st.creep;
+    const ly = mix(top.y - HANG, SEABED + 2.2, Math.max(run / .925, creepTo * (st.creep > 0 ? 1 : 0)));
     const sway = 1 - smooth(0, .65, d) * .6;
     const swingLength = Math.min(5, Math.max(0, top.y - ly)) * .25;
     lampPos.set(top.x + (Math.sin(time * .9) * .06 + boat.rotation.z * swingLength) * sway,
@@ -1052,7 +1055,7 @@ export function createBay(canvas) {
     scene.fog.density = cu ? mix(mix(.022, .085, smooth(-2, -26, camera.position.y)), .035, smooth(0, 1, fl)) : .0035;
     sky.visible = !cu;
     // the floor loads once the dive is chosen; the surface is let go once it is far overhead
-    if ((st.diveArmed || st.dive > 0) && !floorLoad) loadFloor();
+    if ((st.diveArmed || st.dive > 0) && !floorReadying) readyFloor();
     if (!surfaceFreed && camera.position.y < -12 && d > .5) freeSurface();
     // the boat's lights go out of sight from deep down
     lit.visible = true;
@@ -1115,7 +1118,11 @@ export function createBay(canvas) {
   // once the surface is ready, the floor (box, stone, seabed, silt) loads too and is made ready the same way, a piece at a
   // time, so the dive never waits on it
   // gate: the page says when the screen is quiet enough for a stall to go unseen
-  const warmAll = async (gate) => { await warm(gate); await loadFloor(); await idle(); await warm(gate); };
+  // the floor is ready once its models are loaded and every one of them is on the graphics card; until then the dive
+  // holds back from the bottom (the page reads floorReady)
+  let floorReady = false, floorReadying = null;
+  const readyFloor = gate => floorReadying || (floorReadying = (async () => { await loadFloor(); await idle(); await warm(gate); floorReady = true; })());
+  const warmAll = async (gate) => { await warm(gate); await readyFloor(gate); };
   // the bay is over: every geometry, texture and target it made, and the context itself, are let go
   const dispose = () => {
     if (!surfaceFreed) freeSurface();
@@ -1124,5 +1131,5 @@ export function createBay(canvas) {
     composer.renderTarget1.dispose(); composer.renderTarget2.dispose();
     removeEventListener('resize', resize); renderer.dispose(); renderer.forceContextLoss();
   };
-  return { st, look, render, screen, stoneScreen, ready, dispose, warm: warmAll, renderer, scene, camera, get focusUv() { return focusAt.clone(); }, get lampY() { return lampPos.y; }, get box() { return box; } };
+  return { st, look, render, screen, stoneScreen, ready, dispose, warm: warmAll, renderer, scene, camera, get focusUv() { return focusAt.clone(); }, get lampY() { return lampPos.y; }, get box() { return box; }, get floorReady() { return floorReady; } };
 }

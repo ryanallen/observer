@@ -8,6 +8,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 const PLATE = { w: 1671, h: 941 };
 const BOX_AT = { x: 897 / 1671, y: 478 / 941 };   // where the box stands on the table in the plate (its foot)
 const BOX_WIDTH = 52 / 1671;                       // its width in the plate, as a share of the plate's width
+const SHIFT_BASE = .35, SHIFT_DEPTH = .15;           // how much the room shifts with the pointer: all of it, plus a little by depth
 const OPEN_ANGLE = .42;                            // how far each lid panel tips out when open, in radians
 
 export function createLab(canvas) {
@@ -43,17 +44,21 @@ export function createLab(canvas) {
   scene.environment = pmrem.fromScene(envScene, .02).texture; pmrem.dispose();
   envScene.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
 
-  let box = null, gemMat = null, gemLight = null, glowAt = null;
+  let box = null, gemMat = null, gemLight = null, glowAt = null, boxLayer = .3;
   const hinges = [];
   const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
   const texLoader = new THREE.TextureLoader();
   const tex = u => texLoader.loadAsync(u).then(t => { t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; return t; });
   const ready = Promise.all([
-    tex('models/web/lab_closed_v.webp'), tex('models/web/lab_glow_v.webp'), tex('models/web/lab_depth.jpg'),
+    tex('models/web/lab_closed_v.webp'), tex('models/web/lab_glow_v.webp'), tex('models/web/lab_depth.jpg'), tex('models/web/lab_shift.jpg'),
     loader.loadAsync('models/web/box_cd.glb'), loader.loadAsync('models/web/stone.glb'),
-  ]).then(([closed, glow, depth, gb, gs]) => {
+  ]).then(([closed, glow, depth, shift, gb, gs]) => {
     closed.colorSpace = glow.colorSpace = THREE.SRGBColorSpace;
-    Object.assign(u, { closed: { value: closed }, glow: { value: glow }, depth: { value: depth } });
+    Object.assign(u, { closed: { value: closed }, glow: { value: glow }, depth: { value: depth }, shift: { value: shift } });
+    // the box moves exactly as the tabletop under it: read the shift map there
+    const c = document.createElement('canvas'); c.width = shift.image.width; c.height = shift.image.height;
+    const x = c.getContext('2d'); x.drawImage(shift.image, 0, 0);
+    boxLayer = x.getImageData(Math.round(BOX_AT.x * (c.width - 1)), Math.round(BOX_AT.y * (c.height - 1)), 1, 1).data[0] / 255;
     box = gb.scene;
     box.traverse(o => {
       if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; if (o.material.name === 'box_lid_filigree') { o.material.side = THREE.DoubleSide; o.material.alphaTest = o.material.alphaTest || .5; o.material.transparent = false; } }
@@ -75,7 +80,7 @@ export function createLab(canvas) {
 
   // the photograph: closed and glowing plates crossfaded, shifted by depth, racked into focus at the pointer
   const u = {
-    closed: { value: null }, glow: { value: null }, depth: { value: null }, boxTex: { value: boxTarget.texture },
+    closed: { value: null }, glow: { value: null }, depth: { value: null }, shift: { value: null }, boxTex: { value: boxTarget.texture },
     open: { value: 0 }, cover: { value: new THREE.Vector2(1, 1) }, sceneCam: { value: new THREE.Vector2() },
     focusUv: { value: new THREE.Vector2(.5, .5) }, resolution: { value: new THREE.Vector2(1, 1) }, fade: { value: 1 },
     boxAt: { value: new THREE.Vector2(BOX_AT.x, 1 - BOX_AT.y) },
@@ -83,8 +88,10 @@ export function createLab(canvas) {
   const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
     uniforms: u, depthTest: false, depthWrite: false,
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
-    fragmentShader: `uniform sampler2D closed, glow, depth, boxTex; uniform float open, fade; uniform vec2 cover, sceneCam, focusUv, resolution, boxAt; varying vec2 vUv;
-      vec2 plateUv(vec2 s) { vec2 p = (s - .5) * cover + .5; float layer = texture2D(depth, p).r; return p - sceneCam * (.12 + .75 * layer); }
+    fragmentShader: `uniform sampler2D closed, glow, depth, shift, boxTex; uniform float open, fade; uniform vec2 cover, sceneCam, focusUv, resolution, boxAt; varying vec2 vUv;
+      // the shift: the whole room moves about 2%, near parts a little more; the map is flattened so each thing moves as
+      // one with the floor it stands on, and nothing slides over anything
+      vec2 plateUv(vec2 s) { vec2 p = (s - .5) * cover + .5; float layer = texture2D(shift, p).r; return p - sceneCam * (${SHIFT_BASE.toFixed(2)} + ${SHIFT_DEPTH.toFixed(2)} * layer); }
       vec3 room(vec2 s) {
         vec2 p = plateUv(s);
         vec3 c = mix(texture2D(closed, p).rgb, texture2D(glow, p).rgb, open);
@@ -138,11 +145,11 @@ export function createLab(canvas) {
     const ease = 1 - Math.exp(-dt * 4);
     view.x += ((pointerActive ? look.x : idleX) - view.x) * ease; view.y += ((pointerActive ? look.y : idleY) - view.y) * ease;
     u.sceneCam.value.set(view.x * .022, -view.y * .014);
-    const fx = pointerActive ? (look.x + 1) * .5 : BOX_AT.x, fy = pointerActive ? (1 - look.y) * .5 : 1 - BOX_AT.y;
+    const fx = heldFocus ? heldFocus.x : pointerActive ? (look.x + 1) * .5 : BOX_AT.x, fy = heldFocus ? heldFocus.y : pointerActive ? (1 - look.y) * .5 : 1 - BOX_AT.y;
     focusAt.x += (fx - focusAt.x) * (1 - Math.exp(-dt * 8)); focusAt.y += (fy - focusAt.y) * (1 - Math.exp(-dt * 8));
     u.focusUv.value.copy(focusAt);
     // the box stands where it stood in the photograph and moves with the table under it
-    const tableLayer = .55, shift = .12 + .75 * tableLayer;
+    const shift = SHIFT_BASE + SHIFT_DEPTH * boxLayer;
     const sx = ((BOX_AT.x + u.sceneCam.value.x * shift - .5) / coverX + .5) * W;
     const sy = ((BOX_AT.y - u.sceneCam.value.y * shift - .5) / coverY + .5) * H;
     camera.setViewOffset(W, H, W / 2 - sx, H / 2 - sy, W, H);
@@ -167,12 +174,14 @@ export function createLab(canvas) {
     return { x: (p.x * .5 + .5) * W, y: (-p.y * .5 + .5) * H };
   };
   const setPointer = (x, y) => { pointerActive = true; look.x = x; look.y = y; };
+  // for tests: hold the focus at one place so frames taken at different pointer positions differ only by the shift
+  let heldFocus = null; const holdFocus = (x, y) => { heldFocus = x == null ? null : { x, y }; };
 
   const dispose = () => {
     removeEventListener('resize', resize);
     scene.traverse(o => { if (o.geometry) o.geometry.dispose(); for (const m of [].concat(o.material || [])) { for (const k in m) if (m[k] && m[k].isTexture) m[k].dispose(); m.dispose(); } });
-    for (const k of ['closed', 'glow', 'depth']) if (u[k].value) u[k].value.dispose();
+    for (const k of ['closed', 'glow', 'depth', 'shift']) if (u[k].value) u[k].value.dispose();
     if (scene.environment) scene.environment.dispose(); boxTarget.dispose(); quad.geometry.dispose(); quad.material.dispose(); renderer.dispose(); renderer.forceContextLoss();
   };
-  return { st, render, screen, ready, setPointer, dispose, renderer, get box() { return box; } };
+  return { st, render, screen, ready, setPointer, holdFocus, dispose, renderer, get box() { return box; } };
 }
