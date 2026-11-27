@@ -124,10 +124,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b51')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b52')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
-  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b51')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b52')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
@@ -139,7 +139,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
   // a line on screen, and the Observer's recording of it where there is one; the line stays up while it is spoken
-  const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3?v=2', 'Every line, followed far enough, comes to it.': 'audio/voice-every-line-followed-far-enough.mp3?v=1', 'Follow one line back.': 'audio/voice-follow-one-line-back.mp3?v=1', 'It leads into Robert Blake’s mind.': 'audio/voice-it-leads-into-robert-blakes-mind.mp3?v=2', 'In 1935, Dr Dexter sank the Shining Trapezohedron here.': 'audio/voice-in-1935-dr-dexter-sank.mp3?v=1', 'Now his great-granddaughter has come for it.': 'audio/voice-now-his-great-granddaughter.mp3?v=1' };
+  const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3?v=2', 'Every line, followed far enough, comes to it.': 'audio/voice-every-line-followed-far-enough.mp3?v=1', 'Follow one line back.': 'audio/voice-follow-one-line-back.mp3?v=1', 'In 1935, Dr Dexter sank the Shining Trapezohedron here.': 'audio/voice-in-1935-dr-dexter-sank.mp3?v=1', 'Now his great-granddaughter has come for it.': 'audio/voice-now-his-great-granddaughter.mp3?v=1' };
   const say = async (text, hold) => {
     if (skipping) return;
     const c = $('cap'); c.textContent = text; c.classList.add('on');
@@ -702,7 +702,6 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       const voices = (async () => {
         await say('Follow one line back.', 3400);
         followVolume(false);
-        await say('It leads into Robert Blake’s mind.', 3800);
       })();
       await tween('follow', 1, 8400, k => k * k * (3 - 2 * k));
       S.bay = 1; tween('linesA', 0, 1400);
@@ -736,18 +735,11 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     (async () => { await wait(7000); while (!observed) { tip('observe', howTo, 4500); await wait(16000); } })();
     // a cursor still resting where the point was must leave it first; coming back to it is the choice to go down
     while (mouse.on && near()) await wait(100);
-    while (true) {
-      const choice = await waitHold();
-      bay.st.diveArmed = true;
-      if (choice !== 'mouse') break;
-      while (mouse.on && near() && bay.st.zoom < .96) await wait(50);
-      if (mouse.on && near()) break;
-      bay.st.diveArmed = false; bay.st.zoomTarget = 0; S.ring = 0;
-      while (mouse.on && near()) await wait(100);
-    }
+    // the moment the ring fills, it is decided: the zoom and the drop start on that frame, and moving away no longer
+    // cancels anything
+    await waitHold();
+    bay.st.diveArmed = true; bay.st.zoomTarget = 1;
     observed = true; hideTip('observe');
-    bay.st.zoomTarget = 1;
-    while (bay.st.zoom < .96) await wait(50);
     S.ring = 0; $('place').classList.remove('on');
     // one continuous descent: both lines are said from the moment the lamp hits the water, and it reaches the floor just after them
     // the dive runs on its own clock, but if the floor is not ready by 90% it holds there while the lamp keeps creeping
