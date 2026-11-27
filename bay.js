@@ -152,7 +152,8 @@ function makeWater(renderer, scene, sky, res) {
           float fineCrest = smoothstep(.45, .70, vnoise(wp.xz * vec2(5.0, 8.0) + vec2(time * .12, -time * .18)));
           float swellSheen = longCrest * fineCrest * sideFade * smoothstep(.30, .75, screenUv.y);
           float lowerSheen = pow(1.0 - screenUv.y, 1.2) * exp(-pow((screenUv.x - .20) / .65, 2.0));
-          vec3 col = waterColor + vec3(.0060, .0080, .0080) * (1.0 - step(.1, moonDive))
+          vec3 col = waterColor + vec3(.002, .003, .004) * (1.0 - sceneZoom) * (1.0 - smoothstep(.35, .65, screenUv.y))
+                   + vec3(.0060, .0080, .0080) * (1.0 - step(.1, moonDive))
                    + vec3(.006, .007, .008) * longCrest * (1.0 - .65 * lowerSheen)
                    + vec3(.012, .012, .012) * swellSheen
                    + vec3(.0040, .0045, .0050) * lowerSheen
@@ -172,8 +173,8 @@ function makeWater(renderer, scene, sky, res) {
           float tallScreen = 1.0 - reflectionReach;
           float surfaceReflect = 1.0 - step(.1, moonDive);
           float broken = smoothstep(.53, .79, vnoise(wp.xz * vec2(5.7, 9.5) + vec2(0.0, time * .5)));
-          float cabinLane = exp(-pow((screenUv.x - cabinScreen.x - .06) / .024, 2.0));
-          float lampLane = exp(-pow((screenUv.x - lampScreen.x) / .020, 2.0));
+          float cabinLane = exp(-pow((screenUv.x - cabinScreen.x - mix(.03, .06, sceneZoom)) / mix(.014, .024, sceneZoom), 2.0));
+          float lampLane = exp(-pow((screenUv.x - lampScreen.x) / mix(.012, .020, sceneZoom), 2.0));
           float fallPower = mix(.72, .75, surfaceReflect);
           float cabinFall = pow(smoothstep(cabinScreen.y - mix(.37, mix(.32, .23, sceneZoom), surfaceReflect) * reflectionReach, cabinScreen.y - .04 * reflectionReach, screenUv.y), fallPower)
                           * (1.0 - smoothstep(cabinScreen.y - .02, cabinScreen.y + .03, screenUv.y));
@@ -584,22 +585,28 @@ export function createBay(canvas) {
     uniforms: { tDiffuse: { value: null }, scenery: { value: null }, depthMap: { value: null }, zoom: { value: 1 }, aspect: { value: 1.777 } },
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `uniform sampler2D tDiffuse, scenery, depthMap; uniform float zoom, aspect; varying vec2 vUv;
+      float rockAt(vec2 p) {
+        float y = 1.0 - p.y;
+        float d = texture2D(depthMap, p).r - max(0.0, .78 * y - .08);
+        float t = mix(.018, .085, smoothstep(.16, .65, y));
+        return smoothstep(t, t + .022, d);
+      }
       void main() {
         vec3 live = texture2D(tDiffuse, vUv).rgb;
         float scale = mix(1.0, 3.1, smoothstep(0.0, 1.0, zoom));
         vec2 uv = (vUv - vec2(.50, .50)) / scale + vec2(.50, .50);
         if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { gl_FragColor = vec4(live, 1.0); return; }
         float y = 1.0 - uv.y;
-        float dep = texture2D(depthMap, uv).r;
-        float waterDepth = max(0.0, .78 * y - .08);
-        float shore = smoothstep(mix(.018, .085, smoothstep(.16, .65, y)),
-                                 mix(.040, .105, smoothstep(.16, .65, y)), dep - waterDepth);
+        float shore = rockAt(uv);
         float sky = 1.0 - smoothstep(.135, .19, y);
         float still = max(sky, shore);
         // The boat and its live reflection have priority over the photographed water.
         float boat = exp(-pow(length((uv - vec2(.50, .49)) * vec2(1.0, 1.5)) / .115, 2.0)) * smoothstep(.44, .50, y);
         float waterMix = mix(.66, 1.0, 1.0 - smoothstep(mix(.50, .24, smoothstep(.50, 1.2, aspect)),
                                                               mix(.65, .39, smoothstep(.50, 1.2, aspect)), y)) * (1.0 - boat * .83);
+        float nearRock = max(max(rockAt(uv + vec2(.018, 0.0)), rockAt(uv - vec2(.018, 0.0))),
+                             max(rockAt(uv + vec2(0.0, .018)), rockAt(uv - vec2(0.0, .018))));
+        waterMix = mix(waterMix, .95, nearRock * .70);
         float fade = 1.0 - smoothstep(.50, .94, zoom);
         vec3 photo = pow(texture2D(scenery, uv).rgb, vec3(.80));
         float crop = min(1.0, aspect / 1.777);
