@@ -369,8 +369,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     S.linesA = 0;
     await tween('flare', 1, 160); S.ring = 0; await tween('flare', 0, 1600);
     skipping = false;
-    await say('Robert Blake looked into the stone.', 3400);
-    await say('Something looked back.', 3800);
+    await say('Follow one line back.', 3400);
+    await say('It leads into Robert Blake’s mind.', 3800);
     if (await loadBay()) return bayScene();
     // without WebGL: the point becomes a lamp, going down on a cable into the bay
     tween('py', .3, 2800); tween('sea', 1, 3200); await wait(2600);
