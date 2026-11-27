@@ -142,9 +142,8 @@ function makeWater(renderer, scene, sky, res) {
           col += vec3(1.0, .51, .19) * warmth * (.06 + .94 * broken) * nearby * shortStreak * 3.0;
           // Moonlight breaks into irregular soft flecks along moving crests.
           float upper = smoothstep(.16, .52, screenUv.y);
-          float width = mix(.052, .11, smoothstep(.32, 1.0, screenUv.y));
-          float centre = .54 + .018 * (vnoise(wp.xz * .13) - .5);
-          width *= .80 + .40 * vnoise(wp.xz * .08 + vec2(time * .02));
+          float width = mix(.025, .070, smoothstep(.30, 1.0, screenUv.y));
+          float centre = mix(.50, .54, smoothstep(.30, 1.0, screenUv.y));
           float lane = exp(-pow((screenUv.x - centre) / width, 2.0));
           vec2 fp = mat2(.8, -.6, .6, .8) * wp.xz * vec2(6.0, 3.8);
           float facets = vnoise(fp + vec2(time * .9, -time * .6))
@@ -166,11 +165,11 @@ function makeWater(renderer, scene, sky, res) {
           float crestGlint = .3 + .7 * smoothstep(-.15, .27, wp.y);
           float topLight = .35 + 4.0 * smoothstep(.58, .80, screenUv.y)
                          - 1.0 * smoothstep(.90, 1.0, screenUv.y);
-          col += moonColor * lane * upper * fleck * crestGlint * topLight * .9 * (1.0 - .55 * moonDive);
+          col += moonColor * lane * upper * fleck * crestGlint * topLight * .35 * (1.0 - .55 * moonDive);
           float farFlecks = smoothstep(.18, .70, screenUv.y)
                            * smoothstep(.34 + .12 * topThin + .16 * moonDive,
                                         .58 + .12 * topThin + .15 * moonDive, facets) * (.25 + .75 * longCrest);
-          col += moonColor * lane * farFlecks * 1.6 * (1.0 - .55 * moonDive);
+          col += moonColor * lane * farFlecks * 1.2 * (1.0 - .55 * moonDive);
           float submergedLamp = 1.0 - step(-0.1, lampPos.y);
           float shallowLamp = submergedLamp * exp(-max(-lampPos.y, 0.0) * .16);
           float underTransmission = shallowLamp * exp(-dot(wp.xz - lampPos.xz, wp.xz - lampPos.xz) / 1.2);
@@ -283,12 +282,12 @@ export function createBay(canvas) {
   const cage = new THREE.MeshStandardMaterial({ color: 0x303739, roughness: .62, metalness: .75 });
   const topCap = new THREE.Mesh(new THREE.CylinderGeometry(.09, .10, .06, 20), cage); topCap.position.y = .20; lamp.add(topCap);
   const globe = new THREE.Mesh(new THREE.SphereGeometry(.18, 32, 24), new THREE.ShaderMaterial({
-    uniforms: { core: { value: new THREE.Color().setRGB(1.6, .8, .28) }, rim: { value: new THREE.Color().setRGB(1.25, .42, .08) } },
+    uniforms: { core: { value: new THREE.Color().setRGB(1.6, .75, .18) }, rim: { value: new THREE.Color().setRGB(1.2, .32, .03) } },
     vertexShader: `varying vec3 n, v; void main() { vec4 p = modelViewMatrix * vec4(position, 1.0); n = normalize(normalMatrix * normal); v = normalize(-p.xyz); gl_Position = projectionMatrix * p; }`,
     fragmentShader: `uniform vec3 core, rim; varying vec3 n, v; void main() {
       float face = max(dot(normalize(n), normalize(v)), 0.0);
-      float centre = smoothstep(.08, .95, face);
-      vec3 col = mix(rim, core, centre) * (1.0 + .10 * centre * centre);
+      float centre = face * face;
+      vec3 col = mix(rim, core, centre) * (1.0 + .12 * centre * centre);
       gl_FragColor = vec4(col, 1.0);
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
