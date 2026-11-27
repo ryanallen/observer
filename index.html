@@ -215,14 +215,14 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       $('bay').style.transform = `translate3d(${travel * (1 - S.follow)}px,0,0)`;
       g.clearRect(0, 0, W, H);
       const seam = travel * (1 - S.follow);
-      g.fillStyle = '#020203'; g.fillRect(0, 0, Math.ceil(seam) + 24 * Math.min(1, seam / 24), H);
+      g.fillStyle = '#000'; g.fillRect(0, 0, Math.ceil(seam) + 24 * Math.min(1, seam / 24), H);
       // The edge draws in as it nears the left of the screen, so the bay's near rocks slide in with the pan.
       const edge = S.edge * ease01(seam / (W * .35));
       if (edge > 0) {
         const feather = Math.min(W * .22, 280);
         // a soft, uneven front, so the dark never ends in a straight line
         const fw = 48 + feather * .5 * edge;
-        g.save(); g.fillStyle = '#020203'; g.filter = `blur(${Math.max(6, W / 90)}px)`;
+        g.save(); g.fillStyle = '#000'; g.filter = `blur(${Math.max(6, W / 90)}px)`;
         g.beginPath(); g.moveTo(seam - 80, -20);
         for (let y = -20; y <= H + 20; y += 12) {
           const v = .7 + .2 * Math.sin(y * .011 + t * .5) + .15 * Math.sin(y * .029 - t * .8 + 1.7);
@@ -233,7 +233,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
         // thickness, tapering to threads, their sides wobbling as they creep and pull
         // back, some shedding a drop off the end.
         const hash = n => { const v = Math.sin(n * 127.1) * 43758.5453; return v - Math.floor(v); };
-        g.save(); g.fillStyle = '#020203'; g.filter = `blur(${Math.max(2, W / 420)}px)`;
+        g.save(); g.fillStyle = '#000'; g.filter = `blur(${Math.max(2, W / 420)}px)`;
         const count = Math.round(H / 24);
         for (let i = 0; i < count; i++) {
           const y = H * (i + hash(i + 1)) / count;
