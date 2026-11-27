@@ -104,7 +104,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b32')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b33')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; return bay; }).catch(e => { console.warn('bay', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
@@ -300,23 +300,26 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   let canHold = false, holding = false, done = null;
   const HOLD = .6, mouse = { x: 0, y: 0, on: false };
   const near = () => Math.hypot(mouse.x - P.x, mouse.y - P.y) < Math.max(60, Math.min(W, H) * .07);
-  const tick = () => {
+  let holdLast = 0;
+  const tick = now => {
     if (!canHold) return;
+    const elapsed = Math.min(.05, Math.max(0, (now - holdLast) / 1000)); holdLast = now;
     holding = mouse.on && near();
-    S.ring = Math.max(0, Math.min(1, S.ring + (holding ? 1 : -2) * (1 / 60) / HOLD));
-    if (S.ring >= 1) { canHold = false; done && done(); return; }
+    if (bay && S.bay > .95) bay.st.zoomTarget = holding ? 1 : 0;
+    S.ring = Math.max(0, Math.min(1, S.ring + (holding ? 1 : -2) * elapsed / HOLD));
+    if (S.ring >= 1) { canHold = false; done && done('mouse'); return; }
     requestAnimationFrame(tick);
   };
-  const finish = () => { if (canHold) { S.ring = 1; canHold = false; done && done(); } };
+  const finish = () => { if (canHold) { if (bay && S.bay > .95) bay.st.zoomTarget = 1; S.ring = 1; canHold = false; done && done('tap'); } };
   addEventListener('pointermove', e => {
     if (e.pointerType === 'mouse') { mouse.x = e.clientX; mouse.y = e.clientY; mouse.on = true; }
-    // the pointer turns the view of the bay
+    // the pointer racks the bay's focus
     if (bay) { bay.look.x = Math.max(-1, Math.min(1, e.clientX / W * 2 - 1)); bay.look.y = Math.max(-1, Math.min(1, e.clientY / H * 2 - 1)); }
   });
   document.addEventListener('mouseleave', () => { mouse.on = false; });
   addEventListener('pointerdown', e => { if (e.target.id !== 'skip' && e.target.id !== 'begin' && !(e.target.closest && e.target.closest('#sound')) && e.pointerType !== 'mouse') finish(); });
   addEventListener('keydown', e => { if ((e.code === 'Space' || e.code === 'Enter') && canHold) { e.preventDefault(); finish(); } });
-  const waitHold = () => new Promise(res => { done = res; canHold = true; requestAnimationFrame(tick); });
+  const waitHold = () => new Promise(res => { done = res; canHold = true; holdLast = performance.now(); requestAnimationFrame(tick); });
 
   const showSound = () => { $('sound').classList.toggle('muted', !want); $('sound').setAttribute('aria-label', want ? 'Turn sound off' : 'Turn sound on'); };
   showSound();
@@ -395,7 +398,17 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     (async () => { await wait(7000); while (!observed) { tip('observe', howTo, 4500); await wait(16000); } })();
     // a cursor still resting where the point was must leave it first; coming back to it is the choice to go down
     while (mouse.on && near()) await wait(100);
-    await waitHold(); observed = true; hideTip('observe');
+    while (true) {
+      const choice = await waitHold();
+      if (choice !== 'mouse') break;
+      while (mouse.on && near() && bay.st.zoom < .96) await wait(50);
+      if (mouse.on && near()) break;
+      bay.st.zoomTarget = 0; S.ring = 0;
+      while (mouse.on && near()) await wait(100);
+    }
+    observed = true; hideTip('observe');
+    bay.st.zoomTarget = 1;
+    while (bay.st.zoom < .96) await wait(50);
     S.ring = 0; $('place').classList.remove('on');
     tweenOn(bay.st, 'dive', 1, 24000, k => k);
     await wait(15000);
