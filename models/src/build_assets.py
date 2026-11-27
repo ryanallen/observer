@@ -298,11 +298,11 @@ def boat():
   w=cube('aft corner window',(x,.949,2.49),(.49,.038,.78),glass,.006);window_uv(w,i+1)
   for edge in (-.255,.255):cube('aft window mullion',(x+edge,.925,2.49),(.019,.018,.82),dark,.003)
   for edge in (-.40,.40):cube('aft window horizontal frame',(x,.925,2.49+edge),(.53,.018,.02),dark,.003)
- stain=mat('cabin rust runoff',(.15,.052,.022),.05,.94)
+ stain=mat('cabin rust runoff',(.18,.060,.024),.05,.94)
  for side in (-1,1):
-  for i,y in enumerate((1.12,1.86,1.95,2.69,2.78,3.52,3.61,4.35)):
-   top=2.17+.06*math.sin(i*2.1);bottom=1.31+.16*math.sin(i*1.7)
-   width=.052+.013*(i%3);verts=[]
+  for i,y in enumerate((1.16,1.76,2.00,2.60,2.83,3.43,3.66,4.26)):
+   top=2.20+.07*math.sin(i*2.1);bottom=1.20+.18*math.sin(i*1.7)
+   width=.078+.018*(i%3);verts=[]
    for j in range(5):
     t=j/4;z=top+(bottom-top)*t;shift=.016*math.sin(i*2.9+j*1.7)
     w=width*(1-.68*t)*(.78+.22*math.sin(i+j*2.4)**2)
@@ -809,7 +809,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v48.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v50.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
