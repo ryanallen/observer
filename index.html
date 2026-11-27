@@ -451,10 +451,11 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     while (mouse.on && near()) await wait(100);
     while (true) {
       const choice = await waitHold();
+      bay.st.diveArmed = true;
       if (choice !== 'mouse') break;
       while (mouse.on && near() && bay.st.zoom < .96) await wait(50);
       if (mouse.on && near()) break;
-      bay.st.zoomTarget = 0; S.ring = 0;
+      bay.st.diveArmed = false; bay.st.zoomTarget = 0; S.ring = 0;
       while (mouse.on && near()) await wait(100);
     }
     observed = true; hideTip('observe');
