@@ -60,7 +60,7 @@ def ring(n,loc,r,t,m,rot=None,seg=20):
 
 def boat_paint_texture(material,kind,base,seed):
  """Bake compact weathered paint into a JPEG the glTF exporter can embed."""
- size=320;rng=random.Random(seed)
+ size={'white':256,'roof':256,'hull':320,'orange':192,'red':192,'steel':192}[kind];rng=random.Random(seed)
  grids=[]
  for n in (12,48,192):grids.append((n,[rng.random() for _ in range(n*n)]))
  def noise(u,v,grid):
@@ -68,7 +68,7 @@ def boat_paint_texture(material,kind,base,seed):
   fx=fx*fx*(3-2*fx);fy=fy*fy*(3-2*fy)
   a=g[iy*n+ix];b=g[iy*n+(ix+1)%n];c=g[((iy+1)%n)*n+ix];d=g[((iy+1)%n)*n+(ix+1)%n]
   return (a*(1-fx)+b*fx)*(1-fy)+(c*(1-fx)+d*fx)*fy
- drips=[(rng.random(),rng.uniform(.57,.82),rng.uniform(.12,.38),rng.uniform(.003,.011)) for _ in range(18 if kind=='hull' else 22 if kind=='white' else 10)]
+ drips=[(rng.random(),rng.uniform(.65,.87) if kind=='white' else rng.uniform(.57,.82),rng.uniform(.27,.56) if kind=='white' else rng.uniform(.12,.38),rng.uniform(.010,.022) if kind=='white' else rng.uniform(.003,.011)) for _ in range(18 if kind=='hull' else 28 if kind=='white' else 10)]
  if kind=='hull':drips += [((y+7)/14,.72,.27,.013) for y in (-5.1,-2.3,.65,3.7)]
  pixels=[];orm=[]
  rough={'hull':.83,'white':.85,'roof':.84,'deck':.16,'orange':.79,'steel':.63,'red':.88}[kind]
@@ -147,8 +147,8 @@ def boat_paint_texture(material,kind,base,seed):
    orm.extend((max(.65,1-rust*.17),rr,mm,1))
  image=bpy.data.images.new('boat '+kind+' baked color',width=size,height=size,alpha=True)
  image.pixels.foreach_set(pixels)
- path=os.path.join(ROOT,'src','boat_'+kind+'_color_320.jpg')
- image.filepath_raw=path;image.file_format='JPEG';bpy.context.scene.render.image_settings.quality=66;image.save()
+ path=os.path.join(ROOT,'src',f'boat_{kind}_color_{size}.jpg')
+ image.filepath_raw=path;image.file_format='JPEG';bpy.context.scene.render.image_settings.quality=78;image.save()
  bpy.data.images.remove(image)
  image=bpy.data.images.load(path);image.pack()
  p=material.node_tree.nodes.get('Principled BSDF')
@@ -157,8 +157,8 @@ def boat_paint_texture(material,kind,base,seed):
  material.diffuse_color=(*base,1)
  image=bpy.data.images.new('boat '+kind+' baked ORM',width=size,height=size,alpha=True)
  image.pixels.foreach_set(orm)
- path=os.path.join(ROOT,'src','boat_'+kind+'_ORM_320.jpg')
- image.filepath_raw=path;image.file_format='JPEG';bpy.context.scene.render.image_settings.quality=66;image.save()
+ path=os.path.join(ROOT,'src',f'boat_{kind}_ORM_{size}.jpg')
+ image.filepath_raw=path;image.file_format='JPEG';bpy.context.scene.render.image_settings.quality=78;image.save()
  bpy.data.images.remove(image)
  image=bpy.data.images.load(path);image.colorspace_settings.name='Non-Color';image.pack()
  tex=material.node_tree.nodes.new('ShaderNodeTexImage');tex.image=image
@@ -233,7 +233,7 @@ def window_uv(obj,tile=0):
 
 def boat():
  white.name='weathered offwhite superstructure';navy_hull.name='survey hull textured blue paint'
- for material,kind,base,seed in ((white,'white',(.66,.65,.59),11),(roof,'roof',(.48,.51,.55),19),(navy,'hull',(.09,.185,.31),12),(navy_hull,'hull',(.09,.185,.31),12),(red,'red',(.17,.045,.026),16),(orange,'orange',(.75,.245,.048),14),(steel,'steel',(.31,.33,.31),15)):
+ for material,kind,base,seed in ((white,'white',(.83,.81,.75),11),(roof,'roof',(.48,.51,.55),19),(navy,'hull',(.09,.185,.31),12),(navy_hull,'hull',(.09,.185,.31),12),(red,'red',(.17,.045,.026),16),(orange,'orange',(.75,.245,.048),14),(steel,'steel',(.31,.33,.31),15)):
   boat_paint_texture(material,kind,base,seed)
  boat_normal_texture((white,roof,navy,navy_hull,orange,steel))
  boat_window_texture()
@@ -809,7 +809,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v50.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v53.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':

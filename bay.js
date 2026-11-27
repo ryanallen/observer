@@ -139,17 +139,19 @@ function makeWater(renderer, scene, sky, res) {
           bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .40)).rgb - vec3(.14), 0.0) * .05;
           float warmth = dot(bright, vec3(.48, .42, .10));
           warmth /= 1.0 + warmth * 3.0;
+          float reflectionReach = min(1.0, screenSize.x / screenSize.y * .55);
+          float tallScreen = 1.0 - reflectionReach;
           float broken = smoothstep(.44, .70, vnoise(wp.xz * vec2(5.7, 9.5) + vec2(0.0, time * .5)));
           float cabinLane = exp(-pow((screenUv.x - cabinScreen.x - .06) / .024, 2.0));
           float lampLane = exp(-pow((screenUv.x - lampScreen.x) / .020, 2.0));
-          float cabinFall = pow(smoothstep(cabinScreen.y - .37, cabinScreen.y - .04, screenUv.y), .72)
+          float cabinFall = pow(smoothstep(cabinScreen.y - .37 * reflectionReach, cabinScreen.y - .04 * reflectionReach, screenUv.y), .72)
                           * (1.0 - smoothstep(cabinScreen.y - .02, cabinScreen.y + .03, screenUv.y));
-          float lampFall = pow(smoothstep(lampScreen.y - .34, lampScreen.y - .04, screenUv.y), .72)
+          float lampFall = pow(smoothstep(lampScreen.y - .34 * reflectionReach, lampScreen.y - .04 * reflectionReach, screenUv.y), .72)
                          * (1.0 - smoothstep(lampScreen.y - .02, lampScreen.y + .03, screenUv.y));
           float columns = max(cabinLane * cabinFall, lampLane * lampFall);
           vec2 dashAt = screenUv * vec2(140.0, 280.0) + vec2(fine.x * 1.3 + ripple, time * .5);
           float dashes = smoothstep(.48, .76, vnoise(dashAt)) * columns;
-          col += vec3(1.0, .60, .30) * (warmth * columns * 3.8 * (.06 + .94 * broken) + dashes * .24);
+          col += vec3(1.0, .60, .30) * (warmth * columns * 3.8 * (.06 + .94 * broken) * (1.0 - .45 * tallScreen) + dashes * .24);
           // Moonlight breaks into irregular soft flecks along moving crests.
           float upper = smoothstep(.16, .52, screenUv.y);
           float width = mix(.025, .070, smoothstep(.30, 1.0, screenUv.y));
@@ -170,15 +172,16 @@ function makeWater(renderer, scene, sky, res) {
           spec += pow(max(dot(v, reflect(-moonHigh, fine)), 0.0), 780.0) * .30;
           spec += pow(max(dot(v, reflect(-moonLow, fine)), 0.0), 780.0) * .30;
           float topThin = smoothstep(.68, .95, screenUv.y);
+          float moonCrest = mix(longCrest, .35, tallScreen);
           float fleck = spec * smoothstep(.23 + .27 * topThin + .22 * moonDive,
-                                         .48 + .27 * topThin + .18 * moonDive, facets) * (.30 + .70 * longCrest);
+                                         .48 + .27 * topThin + .18 * moonDive, facets) * (.30 + .70 * moonCrest);
           float crestGlint = .3 + .7 * smoothstep(-.15, .27, wp.y);
           float topLight = .35 + 4.0 * smoothstep(.58, .80, screenUv.y)
                          - 1.0 * smoothstep(.90, 1.0, screenUv.y);
           col += moonColor * lane * upper * fleck * crestGlint * topLight * .35 * (1.0 - .55 * moonDive);
           float farFlecks = smoothstep(.18, .70, screenUv.y)
                            * smoothstep(.34 + .12 * topThin + .16 * moonDive,
-                                        .58 + .12 * topThin + .15 * moonDive, facets) * (.25 + .75 * longCrest);
+                                        .58 + .12 * topThin + .15 * moonDive, facets) * (.25 + .75 * moonCrest);
           col += moonColor * lane * farFlecks * 1.2 * (1.0 - .55 * moonDive);
           float submergedLamp = 1.0 - step(-0.1, lampPos.y);
           float shallowLamp = submergedLamp * exp(-max(-lampPos.y, 0.0) * .16);
