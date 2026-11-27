@@ -167,6 +167,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     sfx.pull = load(`audio/pull-${/^[ab]$/.test(q.get('pull')) ? q.get('pull') : 'a'}.mp3`, .8);
     // Source cut: waterphone.wav 98.8–106.8 s, with a quiet two-tap echo tail.
     sfx.follow = load('audio/line-follow.mp3?v=1', .4);
+    // a little of the Apprehension Engine while the button trembles; played at once inside the OBSERVE click, so not primed
+    sfx.tremble = new Audio('audio/tremble.mp3?v=1'); sfx.tremble.volume = .6;
   };
   const sfx = {};
   const play = k => { if (soundOn && sfx[k]) { sfx[k].currentTime = 0; sfx[k].play().catch(() => {}); } };
@@ -187,6 +189,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const snow = Array.from({ length: 260 }, () => ({ x: Math.random(), y: Math.random(), z: .3 + Math.random() * .7, s: Math.random() }));
 
   let t = 0, last = performance.now();
+  const ease01 = k => { k = Math.max(0, Math.min(1, k)); return k * k * (3 - 2 * k); };
+  const followLamp = { x: 0, y: 0 };
   const openingCam = { x: 0, y: 0 };
 
   function draw(now) {
@@ -211,37 +215,68 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       $('bay').style.transform = `translate3d(${travel * (1 - S.follow)}px,0,0)`;
       g.clearRect(0, 0, W, H);
       const seam = travel * (1 - S.follow);
-      g.fillStyle = '#050506'; g.fillRect(0, 0, seam, H);
-      if (S.edge > 0) {
-        const feather = Math.min(W * .24, 300);
-        const shadow = g.createLinearGradient(seam, 0, seam + feather, 0);
-        shadow.addColorStop(0, `rgba(5,5,6,${S.edge})`);
-        shadow.addColorStop(1, 'rgba(5,5,6,0)');
-        g.fillStyle = shadow; g.fillRect(seam, 0, feather, H);
-        // Darkness runs sideways off the edge like ink: uneven tendrils that
-        // creep and waver, each ending in a bead, drawn back as the bay settles.
-        const hash = n => { const s = Math.sin(n * 127.1) * 43758.5453; return s - Math.floor(s); };
-        g.save(); g.fillStyle = '#050506'; g.filter = `blur(${Math.max(1.5, W / 640)}px)`;
-        const count = Math.round(H / 55);
+      g.fillStyle = '#020203'; g.fillRect(0, 0, Math.ceil(seam) + 24 * Math.min(1, seam / 24), H);
+      // The edge draws in as it nears the left of the screen, so the bay's near rocks slide in with the pan.
+      const edge = S.edge * ease01(seam / (W * .35));
+      if (edge > 0) {
+        const feather = Math.min(W * .22, 280);
+        // a soft, uneven front, so the dark never ends in a straight line
+        const fw = 48 + feather * .5 * edge;
+        g.save(); g.fillStyle = '#020203'; g.filter = `blur(${Math.max(6, W / 90)}px)`;
+        g.beginPath(); g.moveTo(seam - 80, -20);
+        for (let y = -20; y <= H + 20; y += 12) {
+          const v = .7 + .2 * Math.sin(y * .011 + t * .5) + .15 * Math.sin(y * .029 - t * .8 + 1.7);
+          g.lineTo(seam + fw * v, y);
+        }
+        g.lineTo(seam - 80, H + 20); g.closePath(); g.fill(); g.restore();
+        // Darkness runs sideways off the edge like ink: tendrils of every length and
+        // thickness, tapering to threads, their sides wobbling as they creep and pull
+        // back, some shedding a drop off the end.
+        const hash = n => { const v = Math.sin(n * 127.1) * 43758.5453; return v - Math.floor(v); };
+        g.save(); g.fillStyle = '#020203'; g.filter = `blur(${Math.max(2, W / 420)}px)`;
+        const count = Math.round(H / 24);
         for (let i = 0; i < count; i++) {
           const y = H * (i + hash(i + 1)) / count;
-          const len = feather * (.3 + 1.7 * Math.pow(hash(i + 9), 1.4)) * S.edge * (.86 + .14 * Math.sin(t * .6 + i * 2.3));
-          if (len < 8) continue;
-          const half = H * (.03 + .045 * hash(i + 21));
-          const wav = H * .01 * (.4 + hash(i + 33)), k = 2 + 3 * hash(i + 45), ph = t * .8 + i;
-          const at = u => y + Math.sin(u * k + ph) * wav * u;
-          // full at the edge, narrowing to a neck, then a heavy round end
-          const width = u => half * (1 - .7 * u * u * (3 - 2 * u));
-          const steps = 18;
-          g.beginPath(); g.moveTo(seam - 4, y - half * 1.6);
-          for (let s = 0; s <= steps; s++) { const u = s / steps; g.lineTo(seam + len * u, at(u) - width(u)); }
-          for (let s = steps; s >= 0; s--) { const u = s / steps; g.lineTo(seam + len * u, at(u) + width(u)); }
-          g.lineTo(seam - 4, y + half * 1.6); g.closePath(); g.fill();
-          g.beginPath(); g.arc(seam + len, at(1), half * (.42 + .16 * hash(i + 57)), 0, 7); g.fill();
+          const thin = hash(i + 21);
+          const len = feather * (.25 + 1.9 * Math.pow(hash(i + 9), 1.3)) * (1 - .5 * thin) * edge
+                    * (.8 + .2 * Math.sin(t * (.4 + .5 * hash(i + 3)) + i * 2.3));
+          if (len < 6) continue;
+          const half = H * (.008 + .042 * Math.pow(1 - thin, 1.3)) * (.4 + .6 * edge);
+          const taper = .6 + 1.4 * hash(i + 27);
+          const slope = (hash(i + 39) - .5) * .18;
+          const wav = H * .012 * (.3 + hash(i + 33)), k = 2 + 5 * hash(i + 45), ph = t * (.6 + .6 * hash(i + 51)) + i;
+          const at = u => y + slope * len * u + Math.sin(u * k + ph) * wav * u;
+          const width = u => Math.max(.6, half * Math.pow(1 - u, taper) * (.78 + .22 * Math.sin(u * 11 + t * 1.7 + i * 5.1)));
+          const steps = 24;
+          g.beginPath(); g.moveTo(seam - 4, at(0) - half * 1.4);
+          for (let j = 0; j <= steps; j++) { const u = j / steps; g.lineTo(seam + len * u, at(u) - width(u)); }
+          for (let j = steps; j >= 0; j--) { const u = j / steps; g.lineTo(seam + len * u, at(u) + width(u)); }
+          g.lineTo(seam - 4, at(0) + half * 1.4); g.closePath(); g.fill();
+          // a drop parting from the end now and then, drifting on and shrinking
+          if (hash(i + 63) > .72) {
+            const life = (t * (.25 + .3 * hash(i + 69)) + hash(i + 75)) % 1;
+            const r = Math.max(.8, half * .3 + 1) * (1 - life);
+            g.beginPath(); g.arc(seam + len * (1 + .12 * life), at(1) + slope * len * .12 * life, r, 0, 7); g.fill();
+          }
+          // a thinner thread branching off the larger tendrils
+          if (half > H * .015) {
+            const bu = .3 + .3 * hash(i + 81), bl = len * (.35 + .4 * hash(i + 87)), bs = (hash(i + 93) - .5) * .5;
+            const bx = seam + len * bu, by = at(bu), bw = width(bu) * .45;
+            g.beginPath(); g.moveTo(bx - 2, by - bw);
+            for (let j = 0; j <= 12; j++) { const u = j / 12; g.lineTo(bx + bl * u, by + bs * bl * u + Math.sin(u * 6 + ph) * wav * .5 * u - bw * (1 - u)); }
+            for (let j = 12; j >= 0; j--) { const u = j / 12; g.lineTo(bx + bl * u, by + bs * bl * u + Math.sin(u * 6 + ph) * wav * .5 * u + bw * (1 - u)); }
+            g.closePath(); g.fill();
+          }
         }
         g.restore();
       }
-      cx = W / 2 - S.follow * travel;
+      // The point leads the camera along the line, a little ahead of centre, and the
+      // bay's lamp comes in to meet it: the point settles on the lamp and becomes it.
+      const lamp = bay.screen(), lampX = lamp.x + seam;
+      const lead = W / 2 + W * .1 * ease01(S.follow / .3);
+      cx = Math.min(lampX, lead);
+      cy += (lamp.y - cy) * ease01(1 - (lampX - cx) / (W * .7));
+      followLamp.x = lampX; followLamp.y = lamp.y;
     } else if (bay && S.bay > 0) {
       bay.st.fade = S.bay; bay.render(dt);
       const p = bay.screen(); cx += (p.x - cx) * S.bay; cy += (p.y - cy) * S.bay;
@@ -313,9 +348,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
         g.strokeStyle = lg; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
       }
       if (S.follow > 0) {
-        const lampX = (1 - S.follow) * 2 * W + W / 2;
-        g.strokeStyle = `rgba(233,228,218,${.22 * (1 - S.follow)})`;
-        g.beginPath(); g.moveTo(cx, cy); g.lineTo(lampX, cy); g.stroke();
+        g.strokeStyle = 'rgba(233,228,218,.22)';
+        g.beginPath(); g.moveTo(cx, cy); g.lineTo(followLamp.x, followLamp.y); g.stroke();
       }
     }
 
@@ -324,7 +358,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       const ph = (t % 3.33) / 3.33, kick = Math.exp(-ph * 14);       // a brief brightening as each ping leaves
       const gr = 18 * (1 + 6 * S.flare) * (1 - .45 * S.bay);
       const glow = g.createRadialGradient(cx, cy, 0, cx, cy, gr * 3);
-      const pointInk = S.pt * (1 - S.bay);
+      const pointInk = S.pt * (1 - S.bay) * (S.follow > 0 ? 1 - ease01((S.follow - .94) / .06) : 1);
       glow.addColorStop(0, `rgba(255,246,228,${(.6 + .35 * kick) * pointInk})`);
       glow.addColorStop(.12, `rgba(255,236,206,${(.2 + .15 * kick) * pointInk})`);
       glow.addColorStop(1, 'rgba(255,236,206,0)');
@@ -413,7 +447,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     // nothing but the way in; its click is what lets a browser play the sound
     const b = $('begin'); await wait(400); b.classList.add('on'); b.focus({ preventScroll: true });
     if (q0.get('at') === 'bay') { b.remove(); S.pt = 1; skipping = false; loadBay(); await bayScene(); return; }
-    await new Promise(res => b.addEventListener('click', e => { e.stopPropagation(); if (want) startSound(); loadBay(); res(); }, { once: true }));
+    await new Promise(res => b.addEventListener('click', e => { e.stopPropagation(); if (want) { startSound(); play('tremble'); } loadBay(); res(); }, { once: true }));
     b.blur(); b.classList.add('tremble'); await wait(500);
     b.classList.remove('tremble'); b.classList.add('line'); await wait(110);
     b.classList.add('shut'); await wait(140);
