@@ -545,14 +545,15 @@ export function createBay(canvas) {
   });
   composer.addPass(grain);
 
-  // ---- view: a narrow lens from above at an angle; the pointer turns it, the dive brings it down after the lamp ----
-  const look = { x: 0, y: 0, sx: 0, sy: 0 };
+  // ---- view: a narrow lens from above at an angle; the pointer only moves the focus, the dive brings it down after the lamp ----
+  const look = { x: 0, y: 0 };
   const focusAt = new THREE.Vector2(.5, .4);
   let pointerActive = false;
-  addEventListener('pointermove', e => { if (e.pointerType === 'mouse') pointerActive = true; });
+  // as on the moor: the pointer only racks the focus; the camera never moves for it
+  addEventListener('pointermove', e => { if (e.pointerType === 'mouse') { pointerActive = true; look.x = e.clientX / innerWidth * 2 - 1; look.y = e.clientY / innerHeight * 2 - 1; } });
   document.addEventListener('mouseleave', () => { pointerActive = false; });
   const st = { dive: 0, floor: 0, fade: 0 };
-  const tgt = new THREE.Vector3(0, HANG, 0), lampPos = new THREE.Vector3(), viewAim = new THREE.Vector3(), parallax = new THREE.Vector3();
+  const tgt = new THREE.Vector3(0, HANG, 0), lampPos = new THREE.Vector3(), viewAim = new THREE.Vector3();
   const cableEnd = new THREE.Vector3(), cableAxis = new THREE.Vector3(), boatCenter = new THREE.Vector3(), reflectionAnchor = new THREE.Vector3();
   let W = 1, H = 1, time = 0;
   const resize = () => {
@@ -635,12 +636,7 @@ export function createBay(canvas) {
 
     // the camera
     const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const idleX = still ? 0 : Math.sin(time * .17) * .35;
-    const idleY = still ? 0 : Math.sin(time * .11 + 1.3) * .25;
-    const wantedX = pointerActive ? look.x : idleX, wantedY = pointerActive ? look.y : idleY;
     const pointerEase = 1 - Math.exp(-dt * 4);
-    look.sx += (wantedX - look.sx) * pointerEase;
-    look.sy += (wantedY - look.sy) * pointerEase;
     const wantedFocusX = pointerActive ? (look.x + 1) * .5 : .5 + Math.sin(time * .07) * .18;
     const wantedFocusY = pointerActive ? (1 - look.y) * .5 : .4 + Math.sin(time * .05 + 2) * .12;
     focusAt.x += (wantedFocusX - focusAt.x) * pointerEase * .7;
@@ -648,9 +644,8 @@ export function createBay(canvas) {
     focus.uniforms.focusUv.value.copy(focusAt);
     const surface = 1 - smooth(0, .18, d);
     focus.uniforms.amount.value = surface * (d > 0 ? .30 : pointerActive ? 1 : .30);
-    const free = 1 - smooth(0, .3, d) * .7;
-    const yaw = Math.PI / 4 + look.sx * .5 * free * (1 - surface) + d * .9;
-    const pitch = mix(.54, .3, smooth(.3, .6, d)) + mix(0, .55, smooth(.2, 1, fl)) - look.sy * .12 * free * (1 - surface);
+    const yaw = Math.PI / 4 + d * .9;
+    const pitch = mix(.54, .3, smooth(.3, .6, d)) + mix(0, .55, smooth(.2, 1, fl));
     const dist = mix(92, 26, smooth(0, .55, d)) * mix(1, .3, smooth(0, 1, fl));
     // a tall screen keeps the same width of view as a wide one
     const fv = mix(16, 34, smooth(0, .55, d)) * Math.PI / 180;
@@ -659,13 +654,9 @@ export function createBay(canvas) {
     if (surface > .999) tgt.copy(lampPos);
     else tgt.lerp(aim, Math.min(1, dt * (d > 0 ? 6 : 2)));
     camera.position.set(tgt.x + Math.cos(pitch) * Math.sin(yaw) * dist, tgt.y + Math.sin(pitch) * dist, tgt.z + Math.cos(pitch) * Math.cos(yaw) * dist);
-    parallax.set(surface * Math.cos(Math.PI / 4) * look.sx * .18,
-      surface * look.sy * .10,
-      -surface * Math.sin(Math.PI / 4) * look.sx * .18);
-    camera.position.add(parallax);
     water.position.set(camera.position.x, 0, camera.position.z);
     // the camera follows the lamp down, but stays above the water until the lamp is well under, then drops through it
-    viewAim.copy(tgt).add(parallax);
+    viewAim.copy(tgt);
     camera.lookAt(viewAim);
     camera.updateMatrixWorld();
     cabin.getWorldPosition(reflectionAnchor);
