@@ -13,9 +13,18 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
 const SEABED = -44;          // the deepest channel, in metres
 const HANG = 2.3;            // the cable's length while the lamp waits over the water
-const LAMP_COLOR = new THREE.Color(1.0, 0.93, 0.8);
+const LAMP_COLOR = new THREE.Color(1.0, 0.78, 0.54);
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const mix = (a, b, t) => a + (b - a) * t;
+
+// The GPU surface and floating objects use the same four travelling swells.
+const SWELL = [
+  { dir: [0.82, 0.57], length: 28, amp: .25, steep: .32 },
+  { dir: [-.50, 0.866], length: 17, amp: .13, steep: .25 },
+  { dir: [0.20, -.98], length: 45, amp: .12, steep: .28 },
+  { dir: [.94, -.34], length: 10, amp: .065, steep: .18 },
+].map(w => { const k = 2 * Math.PI / w.length; return { ...w, k, speed: Math.sqrt(9.81 * k) }; });
+const waveHeight = (x, z, time) => SWELL.reduce((h, w) => h + w.amp * Math.sin(w.k * (w.dir[0] * x + w.dir[1] * z) - w.speed * time), 0);
 
 // a normal map that tiles, from a sum of waves with whole-number frequencies across the tile
 function waterNormals(n = 256) {
@@ -42,32 +51,49 @@ function waterNormals(n = 256) {
 
 // the water: a mirror of the scene above it, broken up by small waves, with the moon's path and each lamp's glitter on
 // it; seen from below, a dark ceiling with the lamp's light on it
-function makeWater(renderer, scene, res) {
-  const rt = new THREE.WebGLRenderTarget(res, res, { type: THREE.HalfFloatType });
+function makeWater(renderer, scene, sky, res) {
+  const rt = new THREE.WebGLRenderTarget(Math.round(res * 16 / 9), res, { type: THREE.HalfFloatType });
   const textureMatrix = new THREE.Matrix4(), mirrorCam = new THREE.PerspectiveCamera();
   const uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
     mirrorSampler: { value: null }, normalSampler: { value: waterNormals() }, time: { value: 0 }, textureMatrix: { value: textureMatrix },
-    eye: { value: new THREE.Vector3() }, waterColor: { value: new THREE.Color(0x0b1a1e) },
-    moonDir: { value: new THREE.Vector3() }, moonColor: { value: new THREE.Color(0.75, 0.82, 0.95) },
-    lampPos: { value: new THREE.Vector3() }, lampPow: { value: 1 },
-    lightPos: { value: [new THREE.Vector3(), new THREE.Vector3()] }, lightCol: { value: [new THREE.Color(), new THREE.Color()] },
+    eye: { value: new THREE.Vector3() }, waterColor: { value: new THREE.Color(0x010305) },
+    moonDir: { value: new THREE.Vector3() }, moonColor: { value: new THREE.Color(0.88, 0.91, 0.96) },
+    lampPos: { value: new THREE.Vector3() }, lampPow: { value: 1 }, screenSize: { value: new THREE.Vector2(1, 1) },
+    swell: { value: SWELL.map(w => new THREE.Vector4(w.dir[0], w.dir[1], w.k, w.amp)) },
+    swellMotion: { value: SWELL.map(w => new THREE.Vector2(w.speed, w.steep)) },
   }]);
   uniforms.mirrorSampler.value = rt.texture;
+  uniforms.textureMatrix.value = textureMatrix;
   const mat = new THREE.ShaderMaterial({
-    uniforms, fog: true, side: THREE.DoubleSide,
+    uniforms, fog: true, side: THREE.DoubleSide, transparent: true, depthWrite: false,
     vertexShader: /* glsl */`
-      uniform mat4 textureMatrix; varying vec4 mirrorCoord; varying vec3 wp;
+      uniform mat4 textureMatrix; uniform float time;
+      uniform vec4 swell[4]; uniform vec2 swellMotion[4];
+      varying vec4 mirrorCoord; varying vec3 wp, swellNormal;
       #include <common>
       #include <fog_pars_vertex>
       void main() {
-        vec4 w = modelMatrix * vec4(position, 1.0); wp = w.xyz; mirrorCoord = textureMatrix * w;
+        vec4 w = modelMatrix * vec4(position, 1.0);
+        vec2 baseXZ = w.xz;
+        vec3 tx = vec3(1.0, 0.0, 0.0), tz = vec3(0.0, 0.0, 1.0);
+        for (int i = 0; i < 4; i++) {
+          vec4 s = swell[i]; vec2 m = swellMotion[i];
+          float phase = s.z * dot(s.xy, baseXZ) - m.x * time;
+          float sn = sin(phase), cs = cos(phase), slope = s.w * s.z;
+          w.xz += s.xy * (m.y * s.w * cs);
+          w.y += s.w * sn;
+          tx += vec3(-m.y * slope * s.x * s.x * sn, slope * s.x * cs, -m.y * slope * s.x * s.y * sn);
+          tz += vec3(-m.y * slope * s.x * s.y * sn, slope * s.y * cs, -m.y * slope * s.y * s.y * sn);
+        }
+        swellNormal = normalize(cross(tz, tx));
+        wp = w.xyz; mirrorCoord = textureMatrix * w;
         vec4 mvPosition = viewMatrix * w; gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
       }`,
     fragmentShader: /* glsl */`
-      uniform sampler2D mirrorSampler, normalSampler; uniform float time, lampPow; uniform vec3 eye, waterColor, moonDir, moonColor, lampPos;
-      uniform vec3 lightPos[2]; uniform vec3 lightCol[2];
-      varying vec4 mirrorCoord; varying vec3 wp;
+      uniform sampler2D mirrorSampler, normalSampler; uniform float time, lampPow; uniform vec2 screenSize; uniform vec3 eye, waterColor, moonDir, moonColor, lampPos;
+      uniform vec4 swell[4]; uniform vec2 swellMotion[4];
+      varying vec4 mirrorCoord; varying vec3 wp, swellNormal;
       #include <common>
       #include <fog_pars_fragment>
       vec3 waveNormal(vec2 p) {
@@ -81,34 +107,57 @@ function makeWater(renderer, scene, res) {
       float hash2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
         return mix(mix(hash2(i), hash2(i + vec2(1, 0)), f.x), mix(hash2(i + vec2(0, 1)), hash2(i + vec2(1, 1)), f.x), f.y); }
-      vec3 glint(vec3 lp, vec3 col, vec3 n, vec3 v, float shine) {
-        vec3 l = lp - wp; float d2 = dot(l, l); l = normalize(l);
-        float s = pow(max(dot(v, reflect(-l, n)), 0.0), shine);
-        return col * s * (shine * 0.004) / (1.0 + d2 * 0.05);
-      }
       void main() {
-        vec3 n = waveNormal(wp.xz);
+        vec3 fine = waveNormal(wp.xz);
+        vec3 n = normalize(swellNormal + vec3(fine.x * .42, 0.0, fine.z * .42));
         vec3 toEye = eye - wp; float dist = length(toEye); vec3 v = toEye / dist;
         vec3 lampGlow = vec3(1.0, 0.93, 0.8) * lampPow;
         if (eye.y >= 0.0) {
-          vec2 distort = n.xz * (0.001 + 1.0 / dist) * 5.0;
-          vec3 refl = texture2D(mirrorSampler, mirrorCoord.xy / mirrorCoord.w + distort).rgb;
-          float th = max(dot(v, n), 0.0), fres = 0.02 + 0.98 * pow(1.0 - th, 5.0);
-          vec3 body = waterColor * (0.25 + 0.75 * th);
-          // light under the surface just below the lamp, as if the water held some of it
-          float hd = length(wp.xz - lampPos.xz), above = max(lampPos.y, 0.0);
-          body += lampGlow * 0.10 * exp(-hd * hd / (2.0 + above * 1.5)) / (1.0 + above * 0.6);
-          for (int i = 0; i < 2; i++) { float ld = length(wp.xz - lightPos[i].xz); body += lightCol[i] * 0.05 * exp(-ld * ld / 30.0); }
-          vec3 col = mix(body, refl, clamp(fres * 1.6, 0.0, 1.0));
-          // the moon's path: many small facets catching it, so a fine layer of ripples for the glitter alone
-          float path = pow(max(dot(v, reflect(-moonDir, n)), 0.0), 900.0);
-          vec2 fp = mat2(0.8, -0.6, 0.6, 0.8) * wp.xz * vec2(3.2, 1.6);
-          float facet = vnoise(fp + vec2(time * 0.9, -time * 0.6)) * vnoise(fp * 2.3 - vec2(time * 1.3, time * 0.4));
-          col += moonColor * path * (0.08 + smoothstep(0.3, 0.7, facet) * 1.6);
-          col += vec3(0.05, 0.065, 0.085) * pow(1.0 - th, 3.0) * (0.6 + 0.8 * n.x);
-          col += glint(lampPos, lampGlow, n, v, 180.0);
-          for (int i = 0; i < 2; i++) col += glint(lightPos[i], lightCol[i], n, v, 140.0);
-          gl_FragColor = vec4(col, 1.0);
+          // Broad moving swells carry fine, broken crests across the whole bay.
+          float ripple = vnoise(wp.xz * vec2(0.9, 2.6) + vec2(0.0, time * 0.8)) - 0.5;
+          vec2 uv = mirrorCoord.xy / mirrorCoord.w;
+          float cross = vnoise(wp.xz * vec2(4.0, 1.5) + vec2(time * 0.3, 0.0)) - 0.5;
+          vec2 distort = vec2(n.x * 0.3, n.z * 1.4 + ripple * 0.5) * (0.001 + 1.0 / dist) * 4.0;
+          distort.x += cross * 0.012;
+          vec3 refl = texture2D(mirrorSampler, uv + distort).rgb;
+          vec2 screenUv = gl_FragCoord.xy / screenSize;
+          float longPhase = swell[0].z * dot(swell[0].xy, wp.xz) - swellMotion[0].x * time;
+          float longCrest = pow(max(sin(longPhase), 0.0), 5.0);
+          float wavelets = pow(max(dot(v, reflect(-moonDir, n)), 0.0), 35.0);
+          float crestNoise = smoothstep(.34, .68, vnoise(wp.xz * vec2(2.7, 6.1) + vec2(time * .16, -time * .24)));
+          vec3 col = waterColor + vec3(.006, .007, .008) * longCrest
+                   + vec3(.006, .0075, .009) * wavelets * crestNoise;
+          // Reflected boat lamps are warm, short streaks broken by the local wavelets.
+          vec3 bright = max(refl - vec3(.07), 0.0) * .22;
+          bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .025)).rgb - vec3(.10), 0.0) * .24;
+          bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .06)).rgb - vec3(.13), 0.0) * .16;
+          bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .11)).rgb - vec3(.17), 0.0) * .08;
+          float warmth = dot(bright, vec3(.23, .62, .15));
+          float broken = smoothstep(.35, .67, vnoise(wp.xz * vec2(5.7, 9.5) + vec2(0.0, time * .5)));
+          float nearby = exp(-pow(max(length(wp.xz - lampPos.xz) - 4.0, 0.0) / 18.0, 2.0));
+          float shortStreak = smoothstep(.13, .31, screenUv.y);
+          col += vec3(1.0, .57, .28) * warmth * (.22 + .78 * broken) * nearby * shortStreak * 2.8;
+          // Moonlight breaks into irregular soft flecks along moving crests.
+          float upper = smoothstep(.31, .84, screenUv.y);
+          float width = mix(.042, .17, smoothstep(.38, 1.0, screenUv.y));
+          float centre = .54 + .018 * sin(screenUv.y * 13.0 + time * .16)
+                       + .018 * (vnoise(wp.xz * .13) - .5);
+          width *= .80 + .40 * vnoise(wp.xz * .08 + vec2(time * .02));
+          float lane = exp(-pow((screenUv.x - centre) / width, 2.0));
+          vec2 fp = mat2(.8, -.6, .6, .8) * wp.xz * vec2(7.5, 4.5);
+          float facets = vnoise(fp + vec2(time * .9, -time * .6))
+                       * vnoise(fp * 2.3 - vec2(time * 1.3, time * .4));
+          float spec = pow(max(dot(v, reflect(-moonDir, fine)), 0.0), 650.0);
+          vec3 moonNear = normalize(vec3(moonDir.x, moonDir.y + .08, moonDir.z));
+          spec += pow(max(dot(v, reflect(-moonNear, fine)), 0.0), 650.0) * .38;
+          float fleck = spec * smoothstep(.23, .48, facets) * (.30 + .70 * longCrest);
+          float crestGlint = .3 + .7 * smoothstep(-.15, .27, wp.y);
+          col += moonColor * lane * upper * fleck * crestGlint * 1.42;
+          float submergedLamp = 1.0 - step(-0.1, lampPos.y);
+          float shallowLamp = submergedLamp * exp(-max(-lampPos.y, 0.0) * .16);
+          float underTransmission = shallowLamp * exp(-dot(wp.xz - lampPos.xz, wp.xz - lampPos.xz) / 1.2);
+          col += vec3(0.12, 0.07, 0.03) * underTransmission;
+          gl_FragColor = vec4(col, 1.0 - underTransmission * 0.9);
         } else {
           // from below: the window to the sky straight up, the rest a dark mirror; the lamp's light on the underside
           vec3 nd = vec3(-n.x, n.y, -n.z);
@@ -124,33 +173,28 @@ function makeWater(renderer, scene, res) {
         #include <fog_fragment>
       }`,
   });
-  const water = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000, 1, 1), mat);
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(512, 512, 256, 256), mat);
   water.rotation.x = -Math.PI / 2;
-  const plane = new THREE.Plane(), clip = new THREE.Vector4(), q = new THREE.Vector4();
   const camPos = new THREE.Vector3(), look = new THREE.Vector3(), tgt = new THREE.Vector3(), rot = new THREE.Matrix4();
-  const N = new THREE.Vector3(0, 1, 0), P0 = new THREE.Vector3();
   water.onBeforeRender = (r, s, camera) => {
     camPos.setFromMatrixPosition(camera.matrixWorld); uniforms.eye.value.copy(camPos);
     if (camPos.y <= 0) return;
     const view = camPos.clone(); view.y = -view.y;
     rot.extractRotation(camera.matrixWorld);
     look.set(0, 0, -1).applyMatrix4(rot).add(camPos); tgt.copy(look); tgt.y = -tgt.y;
-    mirrorCam.position.copy(view); mirrorCam.up.set(0, 1, 0).applyMatrix4(rot); mirrorCam.up.y = -mirrorCam.up.y;
+    mirrorCam.position.copy(view); mirrorCam.up.set(0, 1, 0).applyMatrix4(rot);
     mirrorCam.lookAt(tgt); mirrorCam.far = camera.far; mirrorCam.updateMatrixWorld();
     mirrorCam.projectionMatrix.copy(camera.projectionMatrix);
     textureMatrix.set(.5, 0, 0, .5, 0, .5, 0, .5, 0, 0, .5, .5, 0, 0, 0, 1);
     textureMatrix.multiply(mirrorCam.projectionMatrix).multiply(mirrorCam.matrixWorldInverse);
-    plane.setFromNormalAndCoplanarPoint(N, P0).applyMatrix4(mirrorCam.matrixWorldInverse);
-    clip.set(plane.normal.x, plane.normal.y, plane.normal.z, plane.constant);
-    const e = mirrorCam.projectionMatrix.elements;
-    q.set((Math.sign(clip.x) + e[8]) / e[0], (Math.sign(clip.y) + e[9]) / e[5], -1, (1 + e[10]) / e[14]);
-    clip.multiplyScalar(2 / clip.dot(q));
-    e[2] = clip.x; e[6] = clip.y; e[10] = clip.z + 1; e[14] = clip.w;
     const cur = r.getRenderTarget(); water.visible = false;
+    const hidden = s.children.filter(o => o === sky || o.isPoints || o.position.y < -40);
+    hidden.forEach(o => { o.userData.mirrorWasVisible = o.visible; o.visible = false; });
     r.setRenderTarget(rt); r.state.buffers.depth.setMask(true); r.clear(); r.render(s, mirrorCam);
+    hidden.forEach(o => { o.visible = o.userData.mirrorWasVisible; });
     water.visible = true; r.setRenderTarget(cur);
   };
-  return { water, uniforms };
+  return { water, uniforms, target: rt };
 }
 
 // the sky the water mirrors: black overhead, a little haze low down, the moon behind the scene and its halo in thin cloud
@@ -198,7 +242,7 @@ function standInBoat() {
 export function createBay(canvas) {
   const mobile = matchMedia('(pointer: coarse)').matches;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: !mobile, powerPreference: 'high-performance' });
-  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = !mobile; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
   const fogAbove = new THREE.Color(0x05080b), fogBelow = new THREE.Color(0x0a2629), black = new THREE.Color(0x000000);
@@ -209,21 +253,25 @@ export function createBay(canvas) {
   // moonlight from behind the scene, so its path on the water runs toward us
   const moonDir = new THREE.Vector3(-0.62, 0.42, -0.66).normalize();
   const sky = makeSky(moonDir); scene.add(sky);
-  const moon = new THREE.DirectionalLight(0x9fb2d6, .55); moon.position.copy(moonDir).multiplyScalar(100); scene.add(moon);
-  scene.add(new THREE.HemisphereLight(0x22324a, 0x020406, .35));
+  const moon = new THREE.DirectionalLight(0x9fb2d6, .35); moon.position.copy(moonDir).multiplyScalar(100); scene.add(moon);
+  const skyFill = new THREE.HemisphereLight(0x34485f, 0x07121a, 1.15); scene.add(skyFill);
+  const fill = new THREE.DirectionalLight(0x74869d, .1); fill.position.set(50, 40, 30); scene.add(fill);
 
-  const { water, uniforms: wu } = makeWater(renderer, scene, mobile ? 384 : 768);
+  const { water, uniforms: wu, target: waterTarget } = makeWater(renderer, scene, sky, mobile ? 384 : 768);
   wu.moonDir.value.copy(moonDir); scene.add(water);
 
   // the lamp: a small caged light on the cable, and its light
   const lamp = new THREE.Group();
-  const cage = new THREE.MeshStandardMaterial({ color: 0x2a2c2e, roughness: .45, metalness: .8 });
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(.11, .14, .34, 16), cage); body.position.y = .12; lamp.add(body);
-  const bulb = new THREE.Mesh(new THREE.SphereGeometry(.1, 20, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 5.6, 4.8) }));
-  bulb.position.y = -.08; lamp.add(bulb);
-  for (let i = 0; i < 4; i++) { const bar = new THREE.Mesh(new THREE.CylinderGeometry(.008, .008, .22), cage); const a = i / 4 * Math.PI * 2; bar.position.set(Math.cos(a) * .12, -.08, Math.sin(a) * .12); lamp.add(bar); }
-  const lampLight = new THREE.PointLight(LAMP_COLOR, 30, 0, 2); lampLight.position.y = -.08; lamp.add(lampLight);
-  const spot = new THREE.SpotLight(LAMP_COLOR, 0, 0, .55, .7, 1.6); spot.position.y = -.1; lamp.add(spot); lamp.add(spot.target); spot.target.position.set(0, -10, 0);
+  const cage = new THREE.MeshStandardMaterial({ color: 0x303739, roughness: .62, metalness: .75 });
+  const topCap = new THREE.Mesh(new THREE.CylinderGeometry(.17, .18, .09, 20), cage); topCap.position.y = .27; lamp.add(topCap);
+  const bottomCap = new THREE.Mesh(new THREE.CylinderGeometry(.16, .16, .06, 20), cage); bottomCap.position.y = -.24; lamp.add(bottomCap);
+  const glass = new THREE.Mesh(new THREE.CylinderGeometry(.135, .135, .43, 20, 1, true), new THREE.MeshBasicMaterial({ color: 0xe9a459, transparent: true, opacity: .38, depthWrite: false, side: THREE.DoubleSide })); lamp.add(glass);
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(.105, 20, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.45, .72) }));
+  lamp.add(bulb);
+  for (let i = 0; i < 4; i++) { const bar = new THREE.Mesh(new THREE.CylinderGeometry(.008, .008, .43), cage); const a = i / 4 * Math.PI * 2; bar.position.set(Math.cos(a) * .16, 0, Math.sin(a) * .16); lamp.add(bar); }
+  const lampLight = new THREE.PointLight(LAMP_COLOR, 30, 0, 2); lamp.add(lampLight);
+  const spot = new THREE.SpotLight(LAMP_COLOR, 0, 0, .75, 1.0, 1.6); spot.position.y = -.25; lamp.add(spot); lamp.add(spot.target); spot.target.position.set(0, -10, 0);
+  lamp.scale.setScalar(1.7);
   scene.add(lamp);
   const cable = new THREE.Mesh(new THREE.CylinderGeometry(.012, .012, 1, 6), new THREE.MeshStandardMaterial({ color: 0x8a8f94, roughness: .35, metalness: .9 }));
   scene.add(cable);
@@ -295,10 +343,10 @@ export function createBay(canvas) {
   let hull = standInBoat(); boat.add(hull);
   let sheave = hull.getObjectByName('sheave');
   const lit = new THREE.Group(); boat.add(lit);
-  const flood = new THREE.SpotLight(0xfff1dc, 150, 40, .7, .55, 1.6); flood.position.set(-1.6, 5.8, 6.8); flood.target.position.set(0, 0, 9);
+  const flood = new THREE.SpotLight(0xffdfad, 25, 40, .7, .55, 1.6); flood.position.set(-1.6, 5.8, 6.8); flood.target.position.set(0, 0, 9);
   flood.castShadow = !mobile; flood.shadow.mapSize.set(1024, 1024); flood.shadow.bias = -.0004; lit.add(flood, flood.target);
-  const deck = new THREE.PointLight(0xffc98a, 18, 16, 2); deck.position.set(0, 3.6, 2.4); lit.add(deck);
-  const cabin = new THREE.PointLight(0xffa860, 10, 9, 2); cabin.position.set(0, 2.8, -2.2); lit.add(cabin);
+  const deck = new THREE.PointLight(0xffc98a, 30, 16, 2); deck.position.set(0, 3.6, 2.4); lit.add(deck);
+  const cabin = new THREE.PointLight(0xffce9a, 25, 12, 2); cabin.position.set(-3.0, 4.2, -2.2); lit.add(cabin);
   const fitBoat = () => {
     // set the boat so its sheave hangs over the lamp's resting place, the origin
     boat.position.set(0, 0, 0); boat.rotation.set(0, 0, 0); boat.updateMatrixWorld(true);
@@ -307,17 +355,57 @@ export function createBay(canvas) {
   };
   boat.rotation.y = 0; fitBoat();
   const heading = 1.95;                 // the bow away up the screen to the left
+  boat.rotation.order = 'YXZ';
+  const headingSin = Math.sin(heading), headingCos = Math.cos(heading);
   const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
   const glow = (m, c, k) => { m.emissive = new THREE.Color(c); m.emissiveIntensity = k; };
+  const saltGrime = material => {
+    material.onBeforeCompile = shader => {
+      shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 grimePos;');
+      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\ngrimePos = (modelMatrix * vec4(position, 1.0)).xyz;');
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>
+        varying vec3 grimePos;
+        float grimeNoise(vec2 p) {
+          vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+          float a = fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453);
+          float b = fract(sin(dot(i + vec2(1.0, 0.0), vec2(127.1, 311.7))) * 43758.5453);
+          float c = fract(sin(dot(i + vec2(0.0, 1.0), vec2(127.1, 311.7))) * 43758.5453);
+          float d = fract(sin(dot(i + vec2(1.0, 1.0), vec2(127.1, 311.7))) * 43758.5453);
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }`);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+        float fleck = grimeNoise(grimePos.xz * 5.0 + grimePos.y * 0.6);
+        float run = pow(grimeNoise(grimePos.xz * 2.1), 3.0) * (1.0 - smoothstep(1.2, 4.0, grimePos.y));
+        diffuseColor.rgb *= 0.91 - fleck * 0.08 - run * 0.18;
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.85, 0.67, 0.47), run * 0.22);`);
+    };
+    material.customProgramCacheKey = () => 'observer-salt-grime-v1';
+    material.needsUpdate = true;
+  };
   const dress = root => {
     root.traverse(o => {
       if (!o.isMesh) return;
       o.castShadow = true; o.receiveShadow = true;
       const n = (o.material.name || '') + ' ' + o.name;
-      if (/window_lit/.test(n)) glow(o.material, 0xffaa58, 3.2);
-      else if (/nav_red/.test(n)) glow(o.material, 0xff2a1a, 8);
+      if (/window_lit/.test(n)) glow(o.material, 0xffad62, 1.55);
+      else if (/nav_red/.test(n)) glow(o.material, 0xff4d28, 1.6);
       else if (/nav_green/.test(n)) glow(o.material, 0x1aff5a, 8);
-      else if (/mast_white|buoy_light|flood_lamp/.test(n)) glow(o.material, 0xfff4e0, 8);
+      else if (/mast_white|buoy_light|flood_lamp/.test(n)) glow(o.material, 0xffdfaf, 1.35);
+      if (o.material.name === 'hull warm white') { o.material.color.set(0xc8c7bc); o.material.roughness = .82; saltGrime(o.material); }
+      if (o.material.name === 'survey hull midnight blue') { o.material.color.set(0x1a3447); o.material.roughness = .77; }
+      if (o.material.name === 'survey hull weathered vertex paint') {
+        // This mesh's packed color attribute is only 0–3/255 in the web GLB.
+        // Give it a usable dark blue base with subtle salt and rust variation.
+        const p = o.geometry.getAttribute('position'), colors = new Float32Array(p.count * 4);
+        for (let i = 0; i < p.count; i++) {
+          const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+          const grime = Math.sin(x * 3.1 + z * 1.7) * Math.sin(z * 2.3 - y * 4.8) * .025;
+          const rust = Math.max(0, Math.sin(x * 8.1 + z * 4.3 + y)) * Math.max(0, 1 - Math.abs(y - .25) * 2) * .025;
+          colors.set([.095 + grime + rust, .17 + grime * .7 + rust * .35, .23 + grime * .6, 1], i * 4);
+        }
+        o.geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 4));
+        o.material.roughness = .82;
+      }
     });
   };
   const ready = Promise.allSettled([
@@ -343,7 +431,7 @@ export function createBay(canvas) {
   // ---- post: bloom on the lights, a little grain and a vignette ----
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .85, .55, .82); composer.addPass(bloom);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .22, .25, .91); composer.addPass(bloom);
   composer.addPass(new OutputPass());
   const grain = new ShaderPass({
     uniforms: { tDiffuse: { value: null }, time: { value: 0 }, dark: { value: 0 } },
@@ -358,12 +446,15 @@ export function createBay(canvas) {
   // ---- view: a narrow lens from above at an angle; the pointer turns it, the dive brings it down after the lamp ----
   const look = { x: 0, y: 0, sx: 0, sy: 0 };
   const st = { dive: 0, floor: 0, fade: 0 };
-  const tgt = new THREE.Vector3(0, HANG, 0), lampPos = new THREE.Vector3(), tmp = new THREE.Vector3();
+  const tgt = new THREE.Vector3(0, HANG, 0), lampPos = new THREE.Vector3();
+  const cableEnd = new THREE.Vector3(), cableAxis = new THREE.Vector3(), boatCenter = new THREE.Vector3();
   let W = 1, H = 1, time = 0;
   const resize = () => {
     const dpr = Math.min(mobile ? 1.5 : 2, devicePixelRatio || 1);
     W = innerWidth; H = innerHeight; renderer.setPixelRatio(dpr); renderer.setSize(W, H, false);
+    wu.screenSize.value.set(W * dpr, H * dpr);
     composer.setPixelRatio(dpr); composer.setSize(W, H); bloom.resolution.set(W / 2, H / 2);
+    waterTarget.setSize(Math.round((mobile ? 384 : 768) * W / H), mobile ? 384 : 768);
     camera.aspect = W / H; camera.updateProjectionMatrix(); snowMat.uniforms.px.value = H * dpr / 18;
   };
   resize(); addEventListener('resize', resize);
@@ -371,39 +462,51 @@ export function createBay(canvas) {
   const render = dt => {
     time += dt;
     const d = st.dive, fl = st.floor;
-    // the boat on the swell
+    // The hull samples the same surface at bow, stern, port and starboard.
     const base = boat.userData.base;
-    boat.position.set(base.x, Math.sin(time * .7) * .06 + Math.sin(time * 1.13 + 1) * .03, base.z);
-    boat.rotation.set(Math.sin(time * .61 + .4) * .012, 0, Math.sin(time * .83) * .02);
+    boatCenter.copy(base).applyAxisAngle(THREE.Object3D.DEFAULT_UP, heading);
+    const hullWave = (x, z) => waveHeight(boatCenter.x + headingCos * x + headingSin * z,
+      boatCenter.z - headingSin * x + headingCos * z, time);
+    const bow = hullWave(0, -5.5), stern = hullWave(0, 5.5);
+    const port = hullWave(-1.8, 0), starboard = hullWave(1.8, 0);
+    boat.position.set(boatCenter.x, (bow + stern + port + starboard) * .25, boatCenter.z);
+    boat.rotation.set(-Math.atan2(stern - bow, 11), heading, Math.atan2(starboard - port, 3.6));
     boat.updateMatrixWorld(true);
-    // heading: rotate round the sheave so the lamp keeps its place
-    const s = sheave.getWorldPosition(tmp);
-    boat.position.sub(s); boat.position.applyAxisAngle(THREE.Object3D.DEFAULT_UP, heading); boat.position.add(s);
-    boat.rotation.y = heading; boat.updateMatrixWorld(true);
     const top = sheave.getWorldPosition(new THREE.Vector3());
     // the cable pays out
     const e = d < .5 ? 4 * d * d * d : 1 - Math.pow(-2 * d + 2, 3) / 2;
     const ly = mix(mix(top.y - HANG, SEABED + 9, e), SEABED + 2.2, smooth(0, 1, fl));
-    const sway = Math.max(0, 1 - d * 3);
-    lampPos.set(top.x + Math.sin(time * .9) * .05 * sway, ly, top.z + Math.cos(time * .7) * .04 * sway);
+    const sway = 1 - smooth(0, .65, d) * .6;
+    const swingLength = Math.min(5, Math.max(0, top.y - ly)) * .25;
+    lampPos.set(top.x + (Math.sin(time * .9) * .06 + boat.rotation.z * swingLength) * sway,
+      ly, top.z + (Math.cos(time * .7) * .05 + boat.rotation.x * swingLength) * sway);
     lamp.position.copy(lampPos);
-    cable.position.set((top.x + lampPos.x) / 2, (top.y + lampPos.y + .3) / 2, (top.z + lampPos.z) / 2);
-    cable.scale.y = top.y - lampPos.y - .3; cable.lookAt(top); cable.rotateX(Math.PI / 2);
+    lamp.scale.setScalar(1.7);
+    cableEnd.set(lampPos.x, lampPos.y + .3, lampPos.z);
+    cableAxis.copy(top).sub(cableEnd);
+    cable.position.copy(top).add(cableEnd).multiplyScalar(.5);
+    cable.scale.y = cableAxis.length();
+    cable.quaternion.setFromUnitVectors(THREE.Object3D.DEFAULT_UP, cableAxis.normalize());
     cone.position.copy(lampPos);
     // how far under: the water closes over, the light dies away, then comes back when the floor is near
-    const under = smooth(.4, -1.2, lampPos.y);               // the lamp is in the water
+    const under = smooth(.4, -1.2, lampPos.y);
     const deep = smooth(-4, -30, lampPos.y) * (1 - smooth(0, .55, fl));   // nothing left but the lamp
     const camUnder = camera.position.y < 0 ? 1 : 0;
-    lampLight.intensity = mix(30, 6, under) * (1 - deep * .75);
+    lampLight.intensity = mix(12, 6, under) * (1 - deep * .75);
     lampLight.distance = 0;
     spot.intensity = under * mix(160, 60, deep) * (1 - smooth(.2, 1, fl) * .9);
     coneMat.uniforms.amt.value = under * (1 - deep * .55);
     snowMat.uniforms.amt.value = under * camUnder * (1 - deep * .4);
     snowMat.uniforms.lampPos.value.copy(lampPos); snowMat.uniforms.time.value = time;
     wu.lampPos.value.copy(lampPos); wu.lampPow.value = 1 - deep; wu.time.value = time;
-    flood.updateMatrixWorld(); wu.lightPos.value[0].setFromMatrixPosition(flood.matrixWorld); wu.lightCol.value[0].setRGB(1, .94, .86).multiplyScalar(.7);
-    deck.updateMatrixWorld(); wu.lightPos.value[1].setFromMatrixPosition(deck.matrixWorld); wu.lightCol.value[1].setRGB(1, .78, .5).multiplyScalar(.5);
-    if (buoy) { buoy.position.y = Math.sin(time * .9 + 2) * .12; buoy.rotation.z = Math.sin(time * .7) * .05; }
+    if (buoy) {
+      const x = buoy.position.x, z = buoy.position.z;
+      buoy.position.y = waveHeight(x, z, time);
+      buoy.rotation.order = 'YXZ';
+      buoy.rotation.x = -Math.atan2(waveHeight(x, z + 1, time) - waveHeight(x, z - 1, time), 2);
+      buoy.rotation.z = Math.atan2(waveHeight(x + 1, z, time) - waveHeight(x - 1, z, time), 2);
+      buoyLight.position.y = buoy.position.y + 3.4;
+    }
     buoyLight.intensity = (time % 4 < .5 ? 12 : 0) * (1 - camUnder);
     if (buoy) buoy.traverse(o => { if (o.isMesh && /buoy_light/.test(o.name + (o.material.name || ''))) o.material.emissiveIntensity = time % 4 < .5 ? 10 : .2; });
     if (box) box.visible = fl > .05;
@@ -420,6 +523,7 @@ export function createBay(canvas) {
     const aim = box && fl > 0 ? lampPos.clone().lerp(box.position, .55 * smooth(0, 1, fl)) : lampPos;
     tgt.lerp(aim, Math.min(1, dt * (d > 0 ? 6 : 2)));
     camera.position.set(tgt.x + Math.cos(pitch) * Math.sin(yaw) * dist, tgt.y + Math.sin(pitch) * dist, tgt.z + Math.cos(pitch) * Math.cos(yaw) * dist);
+    water.position.set(camera.position.x, 0, camera.position.z);
     // the camera follows the lamp down, but stays above the water until the lamp is well under, then drops through it
     camera.lookAt(tgt);
     const cu = camera.position.y < 0;
