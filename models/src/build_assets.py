@@ -63,7 +63,7 @@ def boat_paint_texture(material,kind,base,seed):
  drips=[(rng.random(),rng.uniform(.57,.82),rng.uniform(.12,.38),rng.uniform(.003,.011)) for _ in range(18 if kind=='hull' else 22 if kind=='white' else 10)]
  if kind=='hull':drips += [((y+7)/14,.72,.27,.013) for y in (-5.1,-2.3,.65,3.7)]
  pixels=[];orm=[]
- rough={'hull':.83,'white':.85,'deck':.24,'orange':.79,'steel':.63,'red':.88}[kind]
+ rough={'hull':.83,'white':.85,'deck':.35,'orange':.79,'steel':.63,'red':.88}[kind]
  metal={'hull':.24,'white':.06,'deck':.16,'orange':.22,'steel':.58,'red':.12}[kind]
  for j in range(size):
   v=j/(size-1)
@@ -236,10 +236,9 @@ def boat():
   for y in (1.8,2.8,3.8,4.8):
    s=min(stations,key=lambda q:abs(q[0]-y));sy,ch,w,h=s
    cube('bulwark scupper',(side*(w*1.004),sy,h+.09),(.017,.24,.085),dark,.01)
- # Wheelhouse, raked forward glazing, and roof overhang.
+ # Wheelhouse, raked forward glazing, and close-fitting roof.
  cube('forward wheelhouse',(0,2.82,1.79),(2.65,3.70,1.45),white,.07)
- cube('overhanging roof',(0,2.8,3.02),(3.08,4.13,.18),white,.10)
- cube('weathered roof top',(0,2.8,3.116),(2.92,3.98,.012),steel,.012)
+ cube('wheelhouse roof',(0,2.82,3.02),(2.71,3.76,.18),white,.03)
  for i,x in enumerate((-.83,0,.83)):
   w=cube('raked windscreen',(x,4.705,2.47),(.72,.035,.66),glass,.014)
   window_uv(w,(i+1)%4);w.rotation_euler[0]=math.radians(12)
@@ -262,16 +261,14 @@ def boat():
  ring('door porthole frame',(0,.877,2.28),.16,.022,steel,(math.pi/2,0,0),24)
  cyl('door porthole glass',(0,.870,2.28),.14,.018,glass,24,(math.pi/2,0,0))
  ball('door handle',(.26,.873,1.82),(.035,.02,.03),steel,10)
- # Searchlight, roof safety rails, ladder and raft canister.
- cyl('roof searchlight',(0,4.35,3.31),.22,.33,steel,20,(math.pi/2,0,0))
- cyl('searchlight lens',(0,4.54,3.31),.195,.028,lamp,20,(math.pi/2,0,0))
+ # Small warm roof lamp, roof safety rails, and ladder.
+ cube('roof lamp housing',(-.95,4.32,3.17),(.12,.12,.09),dark,.012)
+ ball('roof lamp warm face',(-.95,4.39,3.17),(.04,.013,.04),lamp,10)
  for x in (-1.37,1.37):
   for y in (1.13,2.72,4.35):rod('roof rail upright',(x,y,3.10),(x,y,3.51),.021,steel,8)
   rod('roof handrail',(x,1.13,3.51),(x,4.35,3.51),.024,steel,8)
  for x in (-1.1,-.65):rod('roof access ladder rail',(x,.67,1.12),(x,.67,3.15),.025,steel,8)
  for z in [1.27+i*.25 for i in range(8)]:rod('ladder rung',(-1.1,.67,z),(-.65,.67,z),.018,steel,8)
- cyl('life raft canister',(.78,2.0,3.29),.26,1.09,white,20,(0,math.pi/2,0))
- for x in (.31,1.24):ring('raft lash', (x,2.0,3.29),.27,.013,dark,(0,math.pi/2,0),20)
  for x in (-1.62,1.62):
   for y in (-5.8,-4.5,-3.2,-1.9,-.6,.7):rod('rail stanchion',(x,y,1.06),(x,y,1.83),.026,steel,8)
   for z,r in ((1.83,.03),(1.48,.018)):rod('side rail',(x,-5.8,z),(x,.7,z),r,steel,8)
@@ -295,6 +292,7 @@ def boat():
   ball('flood_lamp',(x,-7.79,4.15),(.065,.036,.05),lamp,10)
   cube('floodlamp housing',(x,-7.70,4.15),(.17,.12,.12),dark,.012)
  for x in (-.40,.40):cyl('winch flange',(x,-3.3,1.52),.40,.065,steel,20,(0,math.pi/2,0))
+ cube('white cooler box',(-.98,-3.08,1.33),(.90,.50,.45),white,.035)
  cyl('winch drum',(0,-3.3,1.52),.31,.75,dark,20,(0,math.pi/2,0))
  for i in range(11):ring('wound steel cable',(-.29+i*.058,-3.3,1.52),.323,.013,steel,(0,math.pi/2,0),16)
  cube('hydraulic winch motor',(.68,-3.3,1.4),(.49,.53,.45),steel,.04)
@@ -324,12 +322,12 @@ def boat():
    for z in (.30,.73):
     ball('hull plate fastener',(side*w*1.072,y,z),(.013,.013,.013),steel,8)
  ring('life ring',(-1.50,1.36,2.05),.28,.08,orange,(0,math.pi/2,0))
- rod('mast',(0,3.12,3.05),(0,3.12,5.19),.065,steel)
- cyl('radar dome',(0,3.12,4.48),.31,.25,white,20);ball('radar cover',(0,3.12,4.68),(.31,.31,.24),white)
+ cyl('radar dome',(0,3.12,3.55),.05,.86,steel,12)
+ ball('radar cover',(0,3.12,4.10),(.175,.175,.18),white)
  for x,y,height in ((-.92,1.28,5.20),(-1.17,2.14,5.46)):
   rod('radio whip',(x,y,3.11),(x-.06,y,height),.012,steel,8)
   cyl('radio whip base',(x,y,3.15),.042,.10,steel,10)
- ball('mast_white',(0,3.12,5.2),(.042,.042,.042),navw)
+ ball('mast_white',(0,3.12,4.30),(.042,.042,.042),navw)
  ball('nav_red',(-1.48,4.46,3.07),(.025,.025,.025),navr)
  ball('nav_green',(1.48,4.46,3.07),(.025,.025,.025),navg)
  for x in (-1.15,1.15):
@@ -751,7 +749,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v10.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v12.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
