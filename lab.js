@@ -10,7 +10,10 @@ const BOX_AT = { x: 897 / 1671, y: 478 / 941 };   // where the box stands on the
 const BOX_WIDTH = 52 / 1671;                       // its width in the plate, as a share of the plate's width
 const SHIFT_BASE = .35, SHIFT_DEPTH = .15;           // how much the room shifts with the pointer: all of it, plus a little by depth
 const OPEN_ANGLE = .42;
-const LIGHTS = 24;                            // how far each lid panel tips out when open, in radians
+const LIGHTS = 24;
+// P.4, the look back: Ruth's side of the room. Where the stone hangs in that photograph (in the air over the crown), how
+// wide it shows there (75 mm), and where her eye is
+const REV = { w: 1672, h: 941, stone: { x: 853, y: 290 }, stoneW: 98, eye: { x: 557, y: 152 } };
 
 export function createLab(canvas) {
   const mobile = matchMedia('(pointer: coarse)').matches;
@@ -53,6 +56,10 @@ export function createLab(canvas) {
   const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
   const texLoader = new THREE.TextureLoader();
   const tex = u => texLoader.loadAsync(u).then(t => { t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; return t; });
+  let reverseLoad = null;
+  const loadReverse = () => reverseLoad || (reverseLoad = Promise.all([tex('models/web/lab_reverse.webp'), tex('models/web/lab_reverse_depth.jpg')]).then(([r, d]) => {
+    r.colorSpace = THREE.SRGBColorSpace; u.reverse.value = r; u.revDepth.value = d;
+  }));
   const ready = Promise.all([
     tex('models/web/lab_closed_v.webp'), tex('models/web/lab_dark.webp'), tex('models/web/lab_glowdark.webp'), tex('models/web/lab_depth.jpg'), tex('models/web/lab_shift.jpg'),
     loader.loadAsync('models/web/box_cd.glb'), loader.loadAsync('models/web/stone.glb'),
@@ -81,7 +88,7 @@ export function createLab(canvas) {
     const g = gs.scene; g.traverse(o => { if (o.isMesh) gemMat = o.material; }); (seat || box).add(g);
     // the box is modelled in millimetres under its root: give the stone (modelled in metres) its real size inside it
     box.updateMatrixWorld(true); { const sw = (seat || box).getWorldScale(new THREE.Vector3()).y, rw = box.getWorldScale(new THREE.Vector3()).y; g.scale.setScalar(rw / sw); }
-    stone = g; stoneBase = g.position.y; stoneScale = g.scale.x;
+    stone = g; stoneBase = g.position.y; stoneScale = g.scale.x; g.traverse(o => { if (o.isMesh) stoneMeshes.add(o); });
     gemLight = new THREE.PointLight(0xff6a32, 0, .6, 2); glowAt.add(gemLight);
     scene.add(box); box.updateMatrixWorld(true);
   });
@@ -90,6 +97,9 @@ export function createLab(canvas) {
   const u = {
     closed: { value: null }, dark: { value: null }, glowdark: { value: null }, depth: { value: null }, shift: { value: null }, boxTex: { value: boxTarget.texture },
     lampOff: { value: 0 },
+    // the swing round the stone into Ruth's side, then the push toward her eye
+    reverse: { value: null }, revDepth: { value: null }, swing: { value: 0 }, eyeZoom: { value: 0 },
+    stoneA: { value: new THREE.Vector2(.5, .5) }, stoneB: { value: new THREE.Vector2(.5, .5) }, eyeAt: { value: new THREE.Vector2(.5, .5) },
     // the stone's soft red halo, drawn into the room behind the box layer so the stone's dark silhouette stands against it
     stoneAt: { value: new THREE.Vector2(.5, .5) }, halo: { value: new THREE.Vector2(0, .06) },
     open: { value: 0 }, cover: { value: new THREE.Vector2(1, 1) }, sceneCam: { value: new THREE.Vector2() },
@@ -103,11 +113,11 @@ export function createLab(canvas) {
   const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
     uniforms: u, depthTest: false, depthWrite: false,
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
-    fragmentShader: `uniform sampler2D closed, dark, glowdark, depth, shift, boxTex; uniform float open, fade, lampOff; uniform vec2 stoneAt, halo; uniform vec2 cover, sceneCam, focusUv, resolution, boxAt; uniform vec3 lightPos[${LIGHTS}]; uniform vec4 lightCol[${LIGHTS}]; varying vec2 vUv;
+    fragmentShader: `uniform sampler2D closed, dark, glowdark, depth, shift, boxTex, reverse, revDepth; uniform float open, fade, lampOff, swing, eyeZoom; uniform vec2 stoneAt, halo, stoneA, stoneB, eyeAt; uniform vec2 cover, sceneCam, focusUv, resolution, boxAt; uniform vec3 lightPos[${LIGHTS}]; uniform vec4 lightCol[${LIGHTS}]; varying vec2 vUv;
       // the shift: the whole room moves about 2%, near parts a little more; the map is flattened so each thing moves as
       // one with the floor it stands on, and nothing slides over anything
       vec2 plateUv(vec2 s) { vec2 p = (s - .5) * cover + .5; float layer = texture2D(shift, p).r; return p - sceneCam * (${SHIFT_BASE.toFixed(2)} + ${SHIFT_DEPTH.toFixed(2)} * layer); }
-      vec3 room(vec2 s) {
+      vec3 roomA(vec2 s) {
         vec2 p = plateUv(s);
         // the room by the desk lamp, then dark (moonlight only) once it is switched off, then lit by the stone
         vec3 c = mix(mix(texture2D(closed, p).rgb, texture2D(dark, p).rgb, lampOff), texture2D(glowdark, p).rgb, open);
@@ -117,24 +127,52 @@ export function createLab(canvas) {
           lm += lightCol[i].rgb * lightCol[i].a * exp(-dot(d, d) * 2.2);
         }
         c *= 1.0 + lm;
+        return c;
+      }
+      // Ruth's side: the reverse photograph, shifting as a whole with the pointer
+      vec3 roomB(vec2 s) { vec2 p = (s - .5) * cover + .5 - sceneCam * ${SHIFT_BASE.toFixed(2)}; return texture2D(reverse, p).rgb; }
+      vec3 scene(vec2 s) {
+        vec3 c;
+        if (swing <= 0.0) c = roomA(s);
+        else {
+          // the diorama rushes in toward the stone as the view turns, Ruth's side comes out of it, crossing at the middle
+          float ea = smoothstep(0.0, .55, swing), eb = 1.0 - smoothstep(.45, 1.0, swing), wB = smoothstep(.4, .6, swing);
+          vec2 sb = stoneB + (s - stoneB) / (1.0 + 3.0 * eb);
+          sb = eyeAt + (sb - eyeAt) / (1.0 + 5.0 * eyeZoom * eyeZoom);
+          vec3 b = roomB(sb);
+          c = wB >= 1.0 ? b : mix(roomA(stoneA + (s - stoneA) / (1.0 + 3.0 * ea)), b, wB);
+        }
         vec2 hd = (s - stoneAt) * vec2(resolution.x / resolution.y, 1.0) / halo.y;
         float hr = dot(hd, hd);
-        c += halo.x * (vec3(1.0, .16, .05) * exp(-hr * 1.6) * .55 + vec3(1.0, .32, .1) * exp(-hr * 9.0) * .35);
-        vec4 b = texture2D(boxTex, s);
-        return c * (1.0 - b.a) + b.rgb;   // the box's target is premultiplied by its own alpha
+        c += halo.x * (1.0 - eyeZoom) * (vec3(1.0, .16, .05) * exp(-hr * 1.6) * .55 + vec3(1.0, .32, .1) * exp(-hr * 9.0) * .35);
+        vec4 bx = texture2D(boxTex, s) * (1.0 - smoothstep(0.0, .5, eyeZoom));
+        return c * (1.0 - bx.a) + bx.rgb;   // the box's target is premultiplied by its own alpha
       }
       void main() {
-        vec3 sharp = room(vUv);
-        float here = texture2D(depth, (vUv - .5) * cover + .5).r, pointed = texture2D(depth, (focusUv - .5) * cover + .5).r;
-        // the box stands on the table: wherever it covers the picture, it is in focus with the table, not the wall behind
-        here = mix(here, texture2D(depth, (boxAt - .5) * cover + .5).r, texture2D(boxTex, vUv).a);
-        float blur = max(smoothstep(.045, .30, abs(here - pointed)) * .9, smoothstep(.08, .36, abs(vUv.y - focusUv.y)) * .8);
+        // the turn itself: a fast sideways blur, strongest in the middle of the swing
+        if (swing > 0.0 && swing < 1.0) {
+          float mb = sin(3.14159 * swing) * .07;
+          vec3 acc = vec3(0.0);
+          for (int i = 0; i < 14; i++) acc += scene(vUv + vec2(mb * (float(i) / 13.0 - .5), 0.0));
+          gl_FragColor = vec4(acc / 14.0 * fade, 1.0);
+          #include <colorspace_fragment>
+          return;
+        }
+        vec3 sharp = scene(vUv);
+        float here, pointed;
+        if (swing >= 1.0) { here = texture2D(revDepth, (vUv - .5) * cover + .5).r; pointed = texture2D(revDepth, (focusUv - .5) * cover + .5).r; }
+        else {
+          here = texture2D(depth, (vUv - .5) * cover + .5).r; pointed = texture2D(depth, (focusUv - .5) * cover + .5).r;
+          // the box stands on the table: wherever it covers the picture, it is in focus with the table, not the wall behind
+          here = mix(here, texture2D(depth, (boxAt - .5) * cover + .5).r, texture2D(boxTex, vUv).a);
+        }
+        float blur = max(smoothstep(.045, .30, abs(here - pointed)) * .9, smoothstep(.08, .36, abs(vUv.y - focusUv.y)) * .8) * (1.0 - eyeZoom);
         vec2 px = vec2(1.0) / resolution * blur * 9.0;
         float turn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
         vec3 soft = vec3(0.0);
         for (int i = 0; i < 16; i++) {
           float a = float(i) * 2.39996323 + turn, r = sqrt((float(i) + .5) / 16.0);
-          soft += room(vUv + px * r * vec2(cos(a), sin(a)));
+          soft += scene(vUv + px * r * vec2(cos(a), sin(a)));
         }
         gl_FragColor = vec4(mix(sharp, soft / 16.0, blur) * fade, 1.0);
         #include <colorspace_fragment>
@@ -143,8 +181,9 @@ export function createLab(canvas) {
   const flat = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), photo = new THREE.Scene(); photo.add(quad);
 
   // lift: the stone rising out of the open box to hang a hand's width above it; flash: a photon striking it
-  const st = { lamp: 0, open: 0, lift: 0, flash: 0, pulse: 0, fade: 1 };
-  let stone = null, stoneBase = 0, stoneScale = 1, shiftPx = null;
+  const st = { lamp: 0, open: 0, lift: 0, flash: 0, pulse: 0, swing: 0, eyeZoom: 0, fade: 1 };
+  let stone = null, stoneBase = 0, stoneScale = 1, shiftPx = null, orbit = null;
+  const stoneMeshes = new Set();
   const layerAt = (u, v) => { if (!shiftPx) return boxLayer; const x = Math.round(u * (shiftPx.w - 1)), y = Math.round(v * (shiftPx.h - 1)); return shiftPx.data[(y * shiftPx.w + x) * 4] / 255; };
   const look = { x: 0, y: 0 }, view = { x: 0, y: 0 }, focusAt = new THREE.Vector2(BOX_AT.x, BOX_AT.y);
   let time = 0, pointerActive = false, boxPx = { x: 0, y: 0 }, coverX = 1, coverY = 1;
@@ -180,8 +219,30 @@ export function createLab(canvas) {
     const shift = SHIFT_BASE + SHIFT_DEPTH * boxLayer;
     const sx = ((BOX_AT.x + u.sceneCam.value.x * shift - .5) / coverX + .5) * W;
     const sy = ((BOX_AT.y - u.sceneCam.value.y * shift - .5) / coverY + .5) * H;
-    camera.setViewOffset(W, H, W / 2 - sx, H / 2 - sy, W, H);
     boxPx = { x: sx, y: sy };
+    if (st.swing <= 0 || !stone) { camera.setViewOffset(W, H, W / 2 - sx, H / 2 - sy, W, H); orbit = null; }
+    else {
+      // the camera swings round the stone, held where it hangs, and closes in on Ruth's side
+      const T = stone.getWorldPosition(new THREE.Vector3()); T.y += .05;
+      if (!orbit) {
+        const q = stoneScreen(), v = camera.position.clone().sub(T), d0 = v.length();
+        orbit = { yaw0: Math.atan2(v.x, v.z), pitch0: Math.asin(v.y / d0), d0, ox0: W / 2 - q.x, oy0: H / 2 - q.y };
+        u.stoneA.value.set(q.x / W, 1 - q.y / H);
+      }
+      const qb = revToScreen(REV.stone.x, REV.stone.y), ppm1 = (REV.stoneW / REV.w / coverX * W) / .075;
+      const d1 = H / (2 * Math.tan(camera.fov * Math.PI / 360) * ppm1);
+      const k = st.swing < .5 ? 2 * st.swing * st.swing : 1 - Math.pow(-2 * st.swing + 2, 2) / 2;
+      const yw = orbit.yaw0 + Math.PI * .92 * k, pt = orbit.pitch0 + (.12 - orbit.pitch0) * k, dd = orbit.d0 + (d1 - orbit.d0) * k;
+      camera.position.set(T.x + Math.sin(yw) * Math.cos(pt) * dd, T.y + Math.sin(pt) * dd, T.z + Math.cos(yw) * Math.cos(pt) * dd);
+      camera.lookAt(T); camera.near = dd * .3; camera.far = dd * 6; camera.updateProjectionMatrix();
+      camera.setViewOffset(W, H, orbit.ox0 + (W / 2 - qb.x - orbit.ox0) * k, orbit.oy0 + (H / 2 - qb.y - orbit.oy0) * k, W, H);
+      u.stoneB.value.set(qb.x / W, 1 - qb.y / H);
+      const e = revToScreen(REV.eye.x, REV.eye.y); u.eyeAt.value.set(e.x / W, 1 - e.y / H);
+      // past the middle of the turn the box is Ruth's photograph's own; only the real stone stays
+      const showBox = st.swing < .5;
+      if (box) box.traverse(o => { if (o.isMesh) o.visible = showBox || stoneMeshes.has(o); });
+      shadowFloor.visible = showBox;
+    }
     // opening: the panels fold out on their hinges, the stone wakes, the room comes up red
     const o = st.open, glowK = o * (.78 + .32 * st.pulse + .04 * Math.sin(time * 1.3)) + st.flash * .9;
     st.flash *= Math.exp(-dt * 9);
@@ -202,8 +263,11 @@ export function createLab(canvas) {
     // the room's red swells on each heartbeat and eases back
     st.pulse *= Math.exp(-dt * 2.6);
     u.open.value = THREE.MathUtils.smoothstep(o, 0, 1) * (.8 + .2 * st.pulse); u.fade.value = st.fade; u.lampOff.value = st.lamp;
+    u.swing.value = st.swing; u.eyeZoom.value = st.eyeZoom;
     if (stone) { const q = stoneScreen(); u.stoneAt.value.set(q.x / W, 1 - q.y / H); }
-    u.halo.value.set(THREE.MathUtils.smoothstep(st.lift, 0, 1) * (.75 + .35 * st.pulse + .6 * st.flash), .055 + .012 * st.pulse + .015 * st.flash);
+    const sizeK = Math.max(1, stonePx() / 22);
+    u.halo.value.set(THREE.MathUtils.smoothstep(st.lift, 0, 1) * (.75 + .35 * st.pulse + .6 * st.flash), (.055 + .012 * st.pulse + .015 * st.flash) * sizeK);
+    if (gemMat) gemMat.envMapIntensity = 1.6 - 1.3 * THREE.MathUtils.smoothstep(st.swing, .4, 1);
     // the desk lamp on the box goes out with the room's, leaving the moon's faint cool light
     key.intensity = 6 * (1 - st.lamp); key.color.setRGB(1, .77 - .1 * st.lamp, .54 - .05 * st.lamp);
     stoneLight.intensity = (2.2 + 1.6 * st.lift) * THREE.MathUtils.smoothstep(st.open, 0, 1) * (.85 + .3 * st.pulse);
@@ -230,6 +294,15 @@ export function createLab(canvas) {
     return { x: (p.x * .5 + .5) * W, y: (-p.y * .5 + .5) * H };
   };
   const setPointer = (x, y) => { pointerActive = true; look.x = x; look.y = y; };
+  // a point in Ruth's photograph to the screen (it shifts as a whole)
+  const revToScreen = (px, py) => ({ x: ((px / REV.w + u.sceneCam.value.x * SHIFT_BASE - .5) / coverX + .5) * W, y: ((py / REV.h - u.sceneCam.value.y * SHIFT_BASE - .5) / coverY + .5) * H });
+  const eyeScreen = () => revToScreen(REV.eye.x, REV.eye.y);
+  // how many pixels across the stone shows this frame
+  const stonePx = () => {
+    if (!stone) return 22;
+    const a = stone.getWorldPosition(new THREE.Vector3()), b = a.clone(); a.y += .0; b.y += .1;
+    a.project(camera); b.project(camera); return Math.abs(a.y - b.y) * .5 * H * .75;
+  };
   // the page hands its lights in photograph pixels: [px, py, radius px, r, g, b, strength]
   const setLights = list => {
     for (let i = 0; i < LIGHTS; i++) {
@@ -251,8 +324,8 @@ export function createLab(canvas) {
   const dispose = () => {
     removeEventListener('resize', resize);
     scene.traverse(o => { if (o.geometry) o.geometry.dispose(); for (const m of [].concat(o.material || [])) { for (const k in m) if (m[k] && m[k].isTexture) m[k].dispose(); m.dispose(); } });
-    for (const k of ['closed', 'dark', 'glowdark', 'depth', 'shift']) if (u[k].value) u[k].value.dispose();
+    for (const k of ['closed', 'dark', 'glowdark', 'depth', 'shift', 'reverse', 'revDepth']) if (u[k].value) u[k].value.dispose();
     if (scene.environment) scene.environment.dispose(); boxTarget.dispose(); quad.geometry.dispose(); quad.material.dispose(); renderer.dispose(); renderer.forceContextLoss();
   };
-  return { st, render, screen, stoneScreen, plateToScreen, screenToPlate, setLights, ready, setPointer, holdFocus, dispose, renderer, get box() { return box; } };
+  return { st, render, screen, stoneScreen, stonePx, plateToScreen, screenToPlate, revToScreen, eyeScreen, loadReverse, setLights, ready, setPointer, holdFocus, dispose, renderer, get box() { return box; } };
 }

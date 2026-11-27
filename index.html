@@ -100,6 +100,13 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     bench: 0,         // the bench's indicator lights coming on one after another, 0 to 1
     monitor: 0,       // the monitor flickering on, 0 to 1
     firing: false,    // the laser firing single photons at the stone
+    shot: 0,          // P.4: the one line shooting from the stone into Ruth's eye, 0 to 1
+    burst: 0,         // the lines bursting out, bouncing round the room and settling into the steeple's outline, 0 to 1
+    sunset: 0,        // the sunset glow blooming behind the steeple's outline, 0 to 1
+    steeple: 0,       // the steeple's inside darkening to black against it, 0 to 1
+    eyeImg: 0,        // her eye, close, with the steeple in its iris, 0 to 1
+    iris: 0,          // all round the iris going black, 0 to 1
+    lens: 0,          // inside the iris, the field glasses' view coming in, 0 to 1
     clear: 0,         // the ring clearing it on a later heartbeat, 0 to 1
     lab: 0,           // the lab is showing
     pt: 0,            // the point's visibility
@@ -129,10 +136,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b59')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b60')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
-  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b59')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b60')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
@@ -208,6 +215,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     follow: ['audio/line-follow.mp3?v=1', 'bed', .4], tremble: ['audio/tremble.mp3?v=1', 'sfx', .6],
     splash: ['audio/splash.mp3?v=1', 'sfx', .7], splash2: ['audio/splash.mp3?v=1', 'sfx', .45],
     bubbles: ['audio/bubbles-loop.mp3?v=1', 'bed', .35, true], deep: ['audio/deep-loop.mp3?v=1', 'bed', .55, true],
+    blake: ['audio/voice-ruth-blake.mp3?v=1', 'voice', 1],   // Ruth, scared, as the steeple forms in her eye
   };
   for (const [line, u] of Object.entries(VOICE)) SOUNDS[line] = [u, 'voice', 1];
   const buf = {}, live = {}, byUrl = {}, failed = {}, elems = {};
@@ -397,7 +405,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     // the stone's red core, glowing through its facets: deep red-orange, never white; it swells on the beat and at a strike
     if (lab.st.lift > 0) {
       const p = lab.stoneScreen(), k = ease01(lab.st.lift), pulse = lab.st.pulse || 0, fl = lab.st.flash || 0;
-      const r = (9 + 3 * pulse + 5 * fl) * k, gr = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+      const r = (9 + 3 * pulse + 5 * fl) * k * Math.max(1, lab.stonePx() / 22), gr = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
       gr.addColorStop(0, `rgba(255,${Math.round(90 + 50 * fl)},40,${(.8 + .2 * fl) * k})`); gr.addColorStop(.45, `rgba(230,35,12,${.55 * k})`); gr.addColorStop(1, 'rgba(200,20,8,0)');
       g.fillStyle = gr; g.beginPath(); g.arc(p.x, p.y, r, 0, 7); g.fill();
     }
@@ -422,6 +430,103 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     }
     g.restore();
   };
+  // ---- P.4, the look back: a line from the stone into Ruth's eye; lines bursting out and bouncing round the room, settling
+  // into a church steeple, black against a sunset; her eye close, the steeple in its iris; the iris becoming the field
+  // glasses' view ----
+  const img = u => { const i = new Image(); i.decoding = 'async'; i.src = u; return i; };
+  let p4 = null;   // its images and the steeple's outline, loaded once P.3 starts firing
+  const loadP4 = () => p4 || (p4 = (async () => {
+    const eye = img('models/web/ruth_eye.webp'), lens = img('models/web/steeple_lens.webp');
+    const outline = await fetch('models/web/steeple_outline.json').then(r => r.json()).catch(() => []);
+    await Promise.all([eye.decode().catch(() => {}), lens.decode().catch(() => {})]);
+    return { eye, lens, outline };
+  })());
+  const IRIS = { x: 837, y: 527, r: 187 }, LENS = { x: 834.4, y: 465.3, r: 238.4 };   // in their photographs' pixels (1672 x 941)
+  const burstLines = Array.from({ length: 36 }, (_, i) => ({ a: i / 36 * Math.PI * 2 + Math.random() * .2, sp: .9 + Math.random() * .7, trail: [] }));
+  // where a 1672 x 941 photograph shows when it covers the screen
+  const coverOf = () => { const sc = Math.max(W / 1672, H / 941); return { sc, ox: (W - 1672 * sc) / 2, oy: (H - 941 * sc) / 2 }; };
+  // the steeple hangs in the air between Ruth and the stone
+  const steepleAt = () => { const a = lab ? lab.eyeScreen() : { x: W * .35, y: H * .2 }, b = lab ? lab.stoneScreen() : { x: W * .5, y: H * .3 }; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 + H * .06, h: H * .3 }; };
+  const drawP4 = () => {
+    if (!p4Ready) return;
+    const P = p4Ready;
+    g.save();
+    // the line into her eye, then the burst: bright lines like the opening's, bouncing off the edges, settling onto the outline
+    if ((S.shot > 0 || S.burst > 0) && lab && S.lab > 0 && S.eyeImg < 1) {
+      const from = lab.stoneScreen(), eye = lab.eyeScreen();
+      g.globalAlpha = (1 - S.eyeImg) * (1 - ease01(lab.st.eyeZoom * 1.6));   // the room's lines and steeple give way to her eye
+      g.globalCompositeOperation = 'lighter'; g.lineCap = 'round';
+      if (S.shot > 0 && S.burst < .3) {
+        const k = Math.min(1, S.shot), x = from.x + (eye.x - from.x) * k, y = from.y + (eye.y - from.y) * k, fadeL = 1 - S.burst / .3;
+        g.strokeStyle = `rgba(255,70,40,${.35 * fadeL})`; g.lineWidth = 7; g.beginPath(); g.moveTo(from.x, from.y); g.lineTo(x, y); g.stroke();
+        g.strokeStyle = `rgba(255,236,220,${fadeL})`; g.lineWidth = 2.4; g.beginPath(); g.moveTo(from.x, from.y); g.lineTo(x, y); g.stroke();
+        if (k >= 1) {   // her eye catches the light
+          const gl = g.createRadialGradient(eye.x, eye.y, 0, eye.x, eye.y, 22);
+          gl.addColorStop(0, `rgba(255,245,235,${fadeL})`); gl.addColorStop(.3, `rgba(255,120,80,${.6 * fadeL})`); gl.addColorStop(1, 'rgba(255,60,30,0)');
+          g.fillStyle = gl; g.beginPath(); g.arc(eye.x, eye.y, 22, 0, 7); g.fill();
+        }
+      }
+      if (S.burst > 0 && P.outline.length) {
+        const sp = steepleAt(), settle = ease01((S.burst - .5) / .45), heads = [];
+        burstLines.forEach((L, i) => {
+          // flying: straight out at speed, reflected at every edge of the screen
+          const dist = S.burst * L.sp * (W + H) * 1.4;
+          let x = from.x, y = from.y, dx = Math.cos(L.a), dy = Math.sin(L.a), left = dist;
+          for (let n = 0; n < 6 && left > 0; n++) {
+            const tx = dx > 0 ? (W - x) / dx : dx < 0 ? -x / dx : 1e9, ty = dy > 0 ? (H - y) / dy : dy < 0 ? -y / dy : 1e9, tt = Math.min(tx, ty, left);
+            x += dx * tt; y += dy * tt; left -= tt; if (tt === tx) dx = -dx; if (tt === ty) dy = -dy;
+          }
+          const o = P.outline[Math.floor(i / burstLines.length * P.outline.length)];
+          const tx = sp.x + o[0] * sp.h, ty = sp.y + o[1] * sp.h;
+          const hx = x + (tx - x) * settle, hy = y + (ty - y) * settle; heads.push([hx, hy]);
+          L.trail.push([hx, hy]); if (L.trail.length > 7) L.trail.shift();
+          const a = .85 * (1 - settle * .5);
+          g.strokeStyle = `rgba(255,236,222,${a})`; g.lineWidth = 1.4; g.beginPath(); L.trail.forEach(([px, py], j) => j ? g.lineTo(px, py) : g.moveTo(px, py)); g.stroke();
+        });
+        // once they settle, the outline joins up, a glow of sunset behind it and the steeple black within
+        if (settle > 0) {
+          if (S.sunset > 0) {
+            // a sunset blooming behind the outline: a warm sky, brightest low behind the church, fading up and out
+            const gx = sp.x, gy = sp.y + sp.h * .32, gr0 = sp.h * 1.05 * (.6 + .4 * ease01(S.sunset));
+            g.save(); g.translate(gx, gy); g.scale(1.5, 1);
+            const glow = g.createRadialGradient(0, 0, 0, 0, 0, gr0);
+            glow.addColorStop(0, `rgba(255,200,110,${.85 * S.sunset})`); glow.addColorStop(.25, `rgba(255,140,60,${.6 * S.sunset})`);
+            glow.addColorStop(.6, `rgba(210,70,30,${.28 * S.sunset})`); glow.addColorStop(1, 'rgba(120,30,10,0)');
+            g.fillStyle = glow; g.beginPath(); g.arc(0, 0, gr0, 0, 7); g.fill(); g.restore();
+          }
+          if (S.steeple > 0) {
+            g.globalCompositeOperation = 'source-over';
+            g.fillStyle = `rgba(8,5,5,${S.steeple})`; g.beginPath();
+            P.outline.forEach(([ox, oy], j) => j ? g.lineTo(sp.x + ox * sp.h, sp.y + oy * sp.h) : g.moveTo(sp.x + ox * sp.h, sp.y + oy * sp.h)); g.closePath(); g.fill();
+            g.globalCompositeOperation = 'lighter';
+          }
+          g.strokeStyle = `rgba(255,230,210,${.8 * settle})`; g.lineWidth = 1.3; g.beginPath();
+          P.outline.forEach(([ox, oy], j) => j ? g.lineTo(sp.x + ox * sp.h, sp.y + oy * sp.h) : g.moveTo(sp.x + ox * sp.h, sp.y + oy * sp.h)); g.closePath(); g.stroke();
+        }
+      }
+    }
+    // her eye, close, then the iris holding while everything round it goes black and its inside becomes the glasses' view
+    if (S.eyeImg > 0) {
+      g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+      const c = coverOf(), z = 1 + .25 * (1 - ease01(S.eyeImg)), ix = c.ox + IRIS.x * c.sc, iy = c.oy + IRIS.y * c.sc;
+      g.globalAlpha = S.eyeImg;
+      g.translate(ix, iy); g.scale(z, z); g.translate(-ix, -iy);
+      g.drawImage(P.eye, c.ox, c.oy, 1672 * c.sc, 941 * c.sc);
+      g.setTransform(D, 0, 0, D, 0, 0); g.globalAlpha = 1;
+      const r = IRIS.r * c.sc;
+      if (S.lens > 0) {
+        g.save(); g.beginPath(); g.arc(ix, iy, r, 0, 7); g.clip();
+        const k = r / LENS.r; g.globalAlpha = S.lens;
+        g.drawImage(P.lens, ix - LENS.x * k, iy - LENS.y * k, 1672 * k, 941 * k);
+        g.restore();
+      }
+      if (S.iris > 0) {
+        g.fillStyle = `rgba(0,0,0,${S.iris})`; g.beginPath(); g.rect(0, 0, W, H); g.moveTo(ix + r, iy); g.arc(ix, iy, r, 0, Math.PI * 2, true); g.closePath(); g.fill('evenodd');
+      }
+    }
+    g.restore();
+  };
+  let p4Ready = null;
   // a promise kept on the next heartbeat
   const beatWaiters = [];
   const onBeat = () => new Promise(r => beatWaiters.push(r));
@@ -687,6 +792,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       g.strokeStyle = 'rgba(233,228,218,.9)'; g.lineWidth = 1.6; g.beginPath(); g.arc(rx, ry, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * S.ring); g.stroke();
     }
     drawMachine();
+    drawP4();
     if (S.dark > 0) drawDark();
     if (washT0 >= 0) { const k = (t - washT0) / 1.3; if (k >= 1) washT0 = -1; else drawWash(k); }
     if (S.flare > 0) { g.fillStyle = `rgba(255,248,236,${S.flare * .9})`; g.fillRect(0, 0, W, H); }
@@ -913,6 +1019,35 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     tween('monitor', 1, 1400, k => k);
     await tween('bench', 1, 2400, k => k);
     S.firing = true;
+    // P.4: the look back
+    const p4Load = Promise.all([loadP4().then(v => { p4Ready = v; }), lab.loadReverse()]);
+    await wait(2600);
+    say('A point of light at a time.', 2800);
+    await wait(2200); await p4Load;
+    // the camera swings round the hanging stone, fast, and closes in on Ruth's side; the machine's light stays behind
+    S.firing = false; photons.length = 0; tween('bench', 0, 400); tween('monitor', 0, 400);
+    S.pt = 0;   // no ping ring on the stone through the look back
+    await tweenOn(lab.st, 'swing', 1, 1500, k => k);
+    await wait(1000);
+    // a line shoots out of the stone into her eye; then lines burst out everywhere and settle into a steeple
+    await tween('shot', 1, 300, k => k * k);
+    await wait(900);   // held a beat, her eye catching the light
+    await tween('burst', 1, 2600, k => k);
+    // the lines have settled into the outline: a sunset blooms behind it, then the inside darkens to black
+    await tween('sunset', 1, 900);
+    play('blake');
+    await tween('steeple', 1, 900);
+    await wait(1400);
+    // close on her eye: the steeple in its iris
+    tweenOn(lab.st, 'eyeZoom', 1, 1500);
+    await wait(800);
+    await tween('eyeImg', 1, 900);
+    // the lab is done: let it go
+    S.lab = 0; S.pt = 0; release('blake'); lab.dispose(); $('lab').remove(); lab = null; window.observerLab = null;
+    await wait(1600);
+    // the circle holds; everything round it goes dark, and inside it is now the circle of a pair of field glasses
+    tween('iris', 1, 1100);
+    await tween('lens', 1, 1600);
   }
 })();
 </script>
