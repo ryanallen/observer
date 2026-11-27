@@ -160,7 +160,8 @@ function makeWater(renderer, scene, sky, res) {
           vec2 fp = mat2(.8, -.6, .6, .8) * wp.xz * vec2(6.0, 3.8);
           float facets = vnoise(fp + vec2(time * .9, -time * .6))
                        * vnoise(fp * 2.3 - vec2(time * 1.3, time * .4));
-          float spec = pow(max(dot(v, reflect(-moonDir, fine)), 0.0), 780.0);
+          float specMain = pow(max(dot(v, reflect(-moonDir, fine)), 0.0), 780.0);
+          float spec = specMain;
           vec3 moonNear = normalize(vec3(moonDir.x, moonDir.y + .08, moonDir.z));
           spec += pow(max(dot(v, reflect(-moonNear, fine)), 0.0), 780.0) * .38;
           vec3 moonWideA = normalize(vec3(moonDir.x - .14, moonDir.y + .18, moonDir.z));
@@ -171,6 +172,14 @@ function makeWater(renderer, scene, sky, res) {
           vec3 moonLow = normalize(vec3(moonDir.x + .15, moonDir.y - .30, moonDir.z));
           spec += pow(max(dot(v, reflect(-moonHigh, fine)), 0.0), 780.0) * .30;
           spec += pow(max(dot(v, reflect(-moonLow, fine)), 0.0), 780.0) * .30;
+          if (lane > .005 && screenUv.y > .82) {
+            vec2 crestStep = vec2(.707, -.707) * .20;
+            vec3 leftNormal = waveNormal(wp.xz - crestStep);
+            vec3 rightNormal = waveNormal(wp.xz + crestStep);
+            float leftGlint = pow(max(dot(v, reflect(-moonDir, leftNormal)), 0.0), 780.0);
+            float rightGlint = pow(max(dot(v, reflect(-moonDir, rightNormal)), 0.0), 780.0);
+            spec += .28 * smoothstep(.82, .96, screenUv.y) * (leftGlint + rightGlint - 2.0 * specMain);
+          }
           float topThin = smoothstep(.68, .95, screenUv.y);
           float moonCrest = mix(longCrest, .35, tallScreen);
           float fleck = spec * smoothstep(.23 + .27 * topThin + .22 * moonDive,
