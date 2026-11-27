@@ -276,7 +276,7 @@ def window_uv(obj,tile=0):
 
 def boat():
  white.name='weathered offwhite superstructure';navy_hull.name='survey hull textured blue paint'
- for material,kind,base,seed in ((white,'white',(.73,.74,.71),11),(roof,'roof',(.48,.51,.55),19),(navy,'hull',(.09,.185,.31),12),(navy_hull,'hull',(.09,.185,.31),12),(red,'red',(.17,.045,.026),16),(orange,'orange',(.75,.245,.048),14),(aframe_orange,'aframe',(.91,.45,.17),23),(steel,'steel',(.31,.33,.31),15)):
+ for material,kind,base,seed in ((white,'white',(.73,.74,.71),11),(roof,'roof',(.68,.70,.69),19),(navy,'hull',(.09,.185,.31),12),(navy_hull,'hull',(.09,.185,.31),12),(red,'red',(.17,.045,.026),16),(orange,'orange',(.75,.245,.048),14),(aframe_orange,'aframe',(.91,.45,.17),23),(steel,'steel',(.31,.33,.31),15)):
   boat_paint_texture(material,kind,base,seed)
  aframe_cross=aframe_orange.copy();aframe_cross.name='warm chipped orange A frame crossbeam'
  cross_shader=aframe_cross.node_tree.nodes.get('Principled BSDF')
@@ -417,9 +417,12 @@ def boat():
  cyl('searchlight dark rim',(-.98,.84,3.43),.165,.035,dark,20,(math.pi/2,0,0))
  cyl('roof lamp warm face',(-.98,.815,3.43),.135,.018,bulb_halo,20,(math.pi/2,0,0))
  ball('roof lamp bright core',(-.98,.796,3.43),(.052,.014,.052),bulb_core,12)
- for x in (-1.37,1.37):
-  for y in (1.13,2.72,4.35):rod('roof rail upright',(x,y,3.10),(x,y,3.51),.021,steel,8)
-  rod('roof handrail',(x,1.13,3.51),(x,4.35,3.51),.024,steel,8)
+ for x in (-1.32,1.32):
+  for y in (1.08,2.72,4.56):rod('low roof rail upright',(x,y,3.18),(x,y,3.39),.018,antenna_metal,8)
+  rod('low roof side rail',(x,1.08,3.39),(x,4.56,3.39),.021,antenna_metal,8)
+ for y in (1.08,4.56):
+  rod('low roof end rail',(-1.32,y,3.39),(1.32,y,3.39),.021,antenna_metal,8)
+ cube('weathered roof equipment box',(.72,2.18,3.25),(.46,.39,.22),steel,.018)
  for x in (-1.62,1.62):
   for y in (-5.8,-4.5,-3.2,-1.9,-.6,.7):rod('rail stanchion',(x,y,1.06),(x,y,1.83),.026,steel,8)
   for z,r in ((1.83,.03),(1.48,.018)):rod('side rail',(x,-5.8,z),(x,.7,z),r,steel,8)
@@ -482,14 +485,14 @@ def boat():
    for z in (.30,.73):
     ball('hull plate fastener',(side*w*1.072,y,z),(.013,.013,.013),steel,8)
  ring('life ring',(-1.49,1.66,1.77),.28,.08,orange,(0,math.pi/2,0))
- cyl('radar dome',(0,3.12,4.08),.055,1.82,antenna_metal,12)
- cube('radar mast platform',(0,3.12,5.02),(.48,.42,.07),antenna_metal,.015)
- rod('radar short crossbar',(-.37,3.12,4.91),(.37,3.12,4.91),.022,antenna_metal,8)
- ball('radar cover',(0,3.12,5.34),(.27,.27,.29),radar_white)
+ cyl('radar dome',(0,3.12,3.59),.055,.84,antenna_metal,12)
+ cube('radar mast platform',(0,3.12,4.05),(.48,.42,.07),antenna_metal,.015)
+ rod('radar short crossbar',(-.37,3.12,4.00),(.37,3.12,4.00),.022,antenna_metal,8)
+ ball('radar cover',(0,3.12,4.38),(.27,.27,.29),radar_white)
  for x,y,height in ((-.92,1.28,5.76),(-1.17,2.14,5.96)):
   rod('radio whip',(x,y,3.18),(x-.06,y,height),.021,antenna_metal,8)
   cyl('radio whip base',(x,y,3.18),.055,.13,antenna_metal,10)
- ball('mast_white',(0,3.12,5.66),(.042,.042,.042),navw)
+ ball('mast_white',(0,3.12,4.70),(.042,.042,.042),navw)
  ball('nav_red',(-1.48,4.46,3.07),(.025,.025,.025),navr)
  ball('nav_green',(1.48,4.46,3.07),(.025,.025,.025),navg)
  for x in (-1.15,1.15):ball('aft work light',(x,.69,2.91),(.055,.032,.04),lamp,10)
@@ -980,7 +983,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v88.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v89.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
