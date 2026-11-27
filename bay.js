@@ -232,14 +232,16 @@ function makeWater(renderer, scene, sky, res) {
                          - 1.0 * smoothstep(.90, 1.0, screenUv.y);
           topLight = mix(topLight, .65 + .8 * smoothstep(.45, .95, screenUv.y), moonDive);
           float moonProfile = .58 + 1.02 * smoothstep(.70, .98, screenUv.y);
+          float midLift = 1.0 + 1.2 * smoothstep(.40, .60, screenUv.y)
+                        * (1.0 - smoothstep(.63, .83, screenUv.y)) * surfaceReflect;
           float moonStop = mix(1.0, smoothstep(lampScreen.y - .02, lampScreen.y + .14, screenUv.y),
                                smoothstep(.20, .60, tallScreen) * (1.0 - moonDive));
-          col += moonColor * lane * upper * fleck * crestGlint * topLight * .35 * moonProfile * moonStop * (1.0 - .55 * moonDive);
+          col += moonColor * lane * upper * fleck * crestGlint * topLight * .35 * moonProfile * midLift * moonStop * (1.0 - .55 * moonDive);
           float farFlecks = smoothstep(.18, .70, screenUv.y)
                            * smoothstep(.34 + .02 * topThin + .16 * moonDive,
                                         .58 + .02 * topThin + .15 * moonDive, facets) * (.25 + .75 * moonCrest);
           farFlecks = mix(farFlecks, farFlecks * (.35 + .25 * swellBand), surfaceReflect);
-          col += moonColor * lane * farFlecks * moonProfile * mix(1.2, .50, moonDive) * moonStop * (1.0 - .55 * moonDive);
+          col += moonColor * lane * farFlecks * moonProfile * midLift * mix(1.2, .50, moonDive) * moonStop * (1.0 - .55 * moonDive);
           float submergedLamp = 1.0 - step(-0.1, lampPos.y);
           float shallowLamp = submergedLamp * exp(-max(-lampPos.y, 0.0) * .16);
           float underTransmission = shallowLamp * exp(-dot(wp.xz - lampPos.xz, wp.xz - lampPos.xz) / 1.2);
