@@ -108,6 +108,23 @@ function makeWater(renderer, scene, sky, res) {
       float hash2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float vnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
         return mix(mix(hash2(i), hash2(i + vec2(1, 0)), f.x), mix(hash2(i + vec2(0, 1)), hash2(i + vec2(1, 1)), f.x), f.y); }
+      float moonSquiggle(vec2 px, float t, out float band) {
+        float waveY = px.y + px.x * .10 + 9.0 * sin(px.x * .014 + t * .32)
+                    + 2.5 * sin(px.x * .043 - t * .21)
+                    + 7.0 * (vnoise(px * vec2(.012, .019) + vec2(t * .03, 0.0)) - .5) + t * 4.0;
+        band = smoothstep(-.15, .62, sin(waveY * .131));
+        vec2 cell = vec2((px.x + 5.0 * sin(waveY * .08)) / 24.0, waveY / 5.8);
+        vec2 id = floor(cell), f = fract(cell);
+        float seed = hash2(id), seed2 = hash2(id + vec2(19.0, 7.0));
+        float seed3 = hash2(id + vec2(3.0, 31.0));
+        float start = .03 + .20 * seed;
+        float end = min(.98, start + .36 + .48 * seed2);
+        float xMask = smoothstep(start, start + .045, f.x) * (1.0 - smoothstep(end - .05, end, f.x));
+        float centre = .5 + .21 * (seed3 - .5) + .12 * sin(f.x * 7.0 + seed * 6.28)
+                            + .045 * sin(f.x * 15.0 + seed2 * 6.28);
+        float yMask = 1.0 - smoothstep(.035, .13, abs(f.y - centre));
+        return xMask * yMask * (.55 + .45 * seed2) * smoothstep(.10, .35, seed3);
+      }
       void main() {
         vec3 fine = waveNormal(wp.xz);
         vec3 n = normalize(swellNormal + vec3(fine.x * .42, 0.0, fine.z * .42));
@@ -198,6 +215,11 @@ function makeWater(renderer, scene, sky, res) {
           float moonCrest = mix(longCrest, .35, tallScreen);
           float fleck = spec * smoothstep(.23 + .10 * topThin + .22 * moonDive,
                                          .48 + .10 * topThin + .18 * moonDive, facets) * (.30 + .70 * moonCrest);
+          float swellBand = 0.0;
+          if (surfaceReflect > .5 && lane > .005) {
+            float squiggle = moonSquiggle(gl_FragCoord.xy, time, swellBand);
+            fleck = squiggle * (.22 + 1.28 * swellBand) * (1.1 + .65 * longCrest) + fleck * .35;
+          }
           float crestGlint = .3 + .7 * smoothstep(-.15, .27, wp.y);
           float topLight = .35 + 4.0 * smoothstep(.58, .80, screenUv.y)
                          - 1.0 * smoothstep(.90, 1.0, screenUv.y);
@@ -209,6 +231,7 @@ function makeWater(renderer, scene, sky, res) {
           float farFlecks = smoothstep(.18, .70, screenUv.y)
                            * smoothstep(.34 + .02 * topThin + .16 * moonDive,
                                         .58 + .02 * topThin + .15 * moonDive, facets) * (.25 + .75 * moonCrest);
+          farFlecks = mix(farFlecks, farFlecks * (.35 + .25 * swellBand), surfaceReflect);
           col += moonColor * lane * farFlecks * moonProfile * mix(1.2, .50, moonDive) * moonStop * (1.0 - .55 * moonDive);
           float submergedLamp = 1.0 - step(-0.1, lampPos.y);
           float shallowLamp = submergedLamp * exp(-max(-lampPos.y, 0.0) * .16);
