@@ -109,7 +109,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     floor: 0,         // the silt rising into the light
     box: 0,           // the box caught in the light
     eye: 0,           // 1 once the pings are eyes
-    pull: 0,          // the lines pulled in to the point, 0 to 1
+    pull: 0,          // the followed line straightened out to the left and lengthened, 0 to 1
+    sweep: 0,         // one line swinging counter-clockwise round the point, gathering every line into the followed one
     titleA: 0,        // the title's opacity, inside what the eyes have uncovered
     bay: 0,           // the bay in 3D, round the point
     follow: 0,        // the camera traveling right along the surviving line
@@ -124,10 +125,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b53')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b54')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
-  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b53')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b54')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
@@ -158,6 +159,12 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   });
   // the one line followed is the one running back to the left: the point travels on along it, the line trailing behind
   const followRay = rays.reduce((best, ray) => Math.abs(ray.a - Math.PI) < Math.abs(best.a - Math.PI) ? ray : best, rays[0]);
+  // the sweep starts on the line just below it (on screen) and turns counter-clockwise, down, right, up and round,
+  // gathering each line it meets, until it lands on the followed line
+  const sweepStart = rays.filter(r => r !== followRay && r.a < followRay.a).reduce((best, r) => r.a > best.a ? r : best);
+  const sweepEnd = followRay.a - Math.PI * 2;
+  const sweepAt = () => sweepStart.a - S.sweep * (sweepStart.a - sweepEnd);
+  const swept = r => (r.a > sweepStart.a + 1e-9 ? r.a - Math.PI * 2 : r.a) >= sweepAt() - 1e-6;
   // ---- the title, drawn once offscreen so the eye can uncover it ----
   const titleCv = document.createElement('canvas'), tg = titleCv.getContext('2d');
   let titleW = 0, titleH = 0;
@@ -543,6 +550,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       g.lineWidth = 1;
       for (const r of rays) {
         if (S.pull >= 1 && r !== followRay) continue;
+        if (S.sweep > 0 && r !== followRay && swept(r)) continue;   // gathered into the sweeping line
         const p = Math.max(0, Math.min(1, (S.lines - r.delay * .6) / .4)); if (!p) continue;
         const isFollow = r === followRay;
         const reach = isFollow ? R * mix01(r.d, 1.3, S.pull) : R * r.d * (1 - S.pull);
@@ -553,6 +561,12 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
         const lg = g.createLinearGradient(x0, y0, cx, cy);
         lg.addColorStop(0, 'rgba(233,228,218,0)'); lg.addColorStop(1, `rgba(233,228,218,${.22 * S.linesA})`);
         g.strokeStyle = lg; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+      }
+      if (S.sweep > 0 && S.sweep < 1) {
+        const a = sweepAt(), x0 = cx + Math.cos(a) * R * 1.3, y0 = cy + Math.sin(a) * R * 1.3;
+        const lg = g.createLinearGradient(x0, y0, cx, cy);
+        lg.addColorStop(0, 'rgba(233,228,218,0)'); lg.addColorStop(1, `rgba(233,228,218,${.22 * S.linesA})`);
+        g.strokeStyle = lg; g.beginPath(); g.moveTo(x0, y0); g.lineTo(cx, cy); g.stroke();
       }
     }
 
@@ -692,8 +706,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     (async () => { await wait(4000); while (!observed) { tip('observe', howTo, 4500); await wait(16000); } })();
     await waitHold(); observed = true;
     hideTip('observe'); tween('titleA', 0, 900); tween('eye', 0, 900);
-    // All but one line withdraw in silence while the eye and title unravel into black.
-    await tween('pull', 1, 1100, k => k * k * k); S.ring = 0;
+    // the eye and title unravel into black
+    await wait(900); S.ring = 0;
     skipping = false;
     if (await loadBay()) {
       await Promise.race([bay.ready, wait(8000)]);
@@ -703,6 +717,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
         await say('Follow one line back.', 3400);
         followVolume(false);
       })();
+      // as the line is spoken, one line swings counter-clockwise round the point, fast and faster, gathering every
+      // line into the followed one; then that one straightens and the view follows it
+      await tween('sweep', 1, 1200, k => k * k);
+      tween('pull', 1, 400);
       await tween('follow', 1, 8400, k => k * k * (3 - 2 * k));
       S.bay = 1; tween('linesA', 0, 1400);
       await tween('edge', 0, 1000);
