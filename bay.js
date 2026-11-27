@@ -141,7 +141,7 @@ function makeWater(renderer, scene, sky, res) {
           warmth /= 1.0 + warmth * 3.0;
           float reflectionReach = min(1.0, screenSize.x / screenSize.y * .55);
           float tallScreen = 1.0 - reflectionReach;
-          float broken = smoothstep(.44, .70, vnoise(wp.xz * vec2(5.7, 9.5) + vec2(0.0, time * .5)));
+          float broken = smoothstep(.53, .79, vnoise(wp.xz * vec2(5.7, 9.5) + vec2(0.0, time * .5)));
           float cabinLane = exp(-pow((screenUv.x - cabinScreen.x - .06) / .024, 2.0));
           float lampLane = exp(-pow((screenUv.x - lampScreen.x) / .020, 2.0));
           float cabinFall = pow(smoothstep(cabinScreen.y - .37 * reflectionReach, cabinScreen.y - .04 * reflectionReach, screenUv.y), .72)
@@ -150,8 +150,8 @@ function makeWater(renderer, scene, sky, res) {
                          * (1.0 - smoothstep(lampScreen.y - .02, lampScreen.y + .03, screenUv.y));
           float columns = max(cabinLane * cabinFall, lampLane * lampFall);
           vec2 dashAt = screenUv * vec2(140.0, 280.0) + vec2(fine.x * 1.3 + ripple, time * .5);
-          float dashes = smoothstep(.48, .76, vnoise(dashAt)) * columns;
-          col += vec3(1.0, .60, .30) * (warmth * columns * 3.8 * (.06 + .94 * broken) * (1.0 - .45 * tallScreen) + dashes * .24);
+          float dashes = smoothstep(.56, .82, vnoise(dashAt)) * columns;
+          col += vec3(1.0, .60, .30) * (warmth * columns * 3.8 * (.08 + .92 * broken) * (1.0 - .45 * tallScreen) + dashes * .18);
           // Moonlight breaks into irregular soft flecks along moving crests.
           float upper = smoothstep(.16, .52, screenUv.y);
           float width = mix(.025, .070, smoothstep(.30, 1.0, screenUv.y));
