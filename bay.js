@@ -1080,5 +1080,13 @@ export function createBay(canvas) {
     tiny.dispose();
     await idle(); render(1 / 60);
   };
-  return { st, look, render, screen, stoneScreen, ready, warm, renderer, scene, camera, get focusUv() { return focusAt.clone(); }, get lampY() { return lampPos.y; }, get box() { return box; } };
+  // the bay is over: every geometry, texture and target it made, and the context itself, are let go
+  const dispose = () => {
+    if (!surfaceFreed) freeSurface();
+    disposeTree(scene);
+    for (const p of composer.passes) { if (p.dispose) p.dispose(); }
+    composer.renderTarget1.dispose(); composer.renderTarget2.dispose();
+    removeEventListener('resize', resize); renderer.dispose(); renderer.forceContextLoss();
+  };
+  return { st, look, render, screen, stoneScreen, ready, dispose, warm, renderer, scene, camera, get focusUv() { return focusAt.clone(); }, get lampY() { return lampPos.y; }, get box() { return box; } };
 }
