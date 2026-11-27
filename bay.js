@@ -59,6 +59,7 @@ function makeWater(renderer, scene, sky, res) {
     eye: { value: new THREE.Vector3() }, waterColor: { value: new THREE.Color(0x010305) },
     moonDir: { value: new THREE.Vector3() }, moonColor: { value: new THREE.Color(0.88, 0.91, 0.96) }, moonDive: { value: 0 },
     lampPos: { value: new THREE.Vector3() }, lampPow: { value: 1 }, screenSize: { value: new THREE.Vector2(1, 1) },
+    cabinScreen: { value: new THREE.Vector2() }, lampScreen: { value: new THREE.Vector2() },
     swell: { value: SWELL.map(w => new THREE.Vector4(w.dir[0], w.dir[1], w.k, w.amp)) },
     swellMotion: { value: SWELL.map(w => new THREE.Vector2(w.speed, w.steep)) },
   }]);
@@ -91,7 +92,7 @@ function makeWater(renderer, scene, sky, res) {
         #include <fog_vertex>
       }`,
     fragmentShader: /* glsl */`
-      uniform sampler2D mirrorSampler, normalSampler; uniform float time, lampPow, moonDive; uniform vec2 screenSize; uniform vec3 eye, waterColor, moonDir, moonColor, lampPos;
+      uniform sampler2D mirrorSampler, normalSampler; uniform float time, lampPow, moonDive; uniform vec2 screenSize, cabinScreen, lampScreen; uniform vec3 eye, waterColor, moonDir, moonColor, lampPos;
       uniform vec4 swell[4]; uniform vec2 swellMotion[4];
       varying vec4 mirrorCoord; varying vec3 wp, swellNormal;
       #include <common>
@@ -127,19 +128,28 @@ function makeWater(renderer, scene, sky, res) {
           float crestNoise = smoothstep(.34, .68, vnoise(wp.xz * vec2(2.7, 6.1) + vec2(time * .16, -time * .24)));
           vec3 col = waterColor + vec3(.006, .007, .008) * longCrest
                    + vec3(.006, .0075, .009) * wavelets * crestNoise;
-          // Reflected boat lamps are warm, short streaks broken by the local wavelets.
+          // The cabin and cable lamp each carry a long, fading column through the moving swell.
           vec3 bright = max(refl - vec3(.07), 0.0) * .22;
           bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .025)).rgb - vec3(.10), 0.0) * .24;
           bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .06)).rgb - vec3(.13), 0.0) * .16;
           bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .11)).rgb - vec3(.17), 0.0) * .08;
-          bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .17)).rgb - vec3(.19), 0.0) * .055;
-          bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .24)).rgb - vec3(.22), 0.0) * .035;
+          bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .17)).rgb - vec3(.14), 0.0) * .10;
+          bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .24)).rgb - vec3(.14), 0.0) * .10;
+          bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .32)).rgb - vec3(.14), 0.0) * .08;
+          bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .40)).rgb - vec3(.14), 0.0) * .05;
           float warmth = dot(bright, vec3(.48, .42, .10));
           warmth /= 1.0 + warmth * 3.0;
           float broken = smoothstep(.44, .70, vnoise(wp.xz * vec2(5.7, 9.5) + vec2(0.0, time * .5)));
-          float nearby = exp(-pow(max(length(wp.xz - lampPos.xz) - 4.0, 0.0) / 18.0, 2.0));
-          float shortStreak = smoothstep(.13, .31, screenUv.y);
-          col += vec3(1.0, .51, .19) * warmth * (.06 + .94 * broken) * nearby * shortStreak * 3.0;
+          float cabinLane = exp(-pow((screenUv.x - cabinScreen.x - .06) / .029, 2.0));
+          float lampLane = exp(-pow((screenUv.x - lampScreen.x) / .023, 2.0));
+          float cabinFall = pow(smoothstep(cabinScreen.y - .44, cabinScreen.y - .04, screenUv.y), .55)
+                          * (1.0 - smoothstep(cabinScreen.y - .02, cabinScreen.y + .03, screenUv.y));
+          float lampFall = pow(smoothstep(lampScreen.y - .40, lampScreen.y - .04, screenUv.y), .55)
+                         * (1.0 - smoothstep(lampScreen.y - .02, lampScreen.y + .03, screenUv.y));
+          float columns = max(cabinLane * cabinFall, lampLane * lampFall);
+          vec2 dashAt = screenUv * vec2(140.0, 280.0) + vec2(fine.x * 1.3 + ripple, time * .5);
+          float dashes = smoothstep(.46, .74, vnoise(dashAt)) * columns;
+          col += vec3(1.0, .60, .30) * (warmth * columns * 3.5 * (.06 + .94 * broken) + dashes * .25);
           // Moonlight breaks into irregular soft flecks along moving crests.
           float upper = smoothstep(.16, .52, screenUv.y);
           float width = mix(.025, .070, smoothstep(.30, 1.0, screenUv.y));
@@ -367,11 +377,11 @@ export function createBay(canvas) {
   let hull = standInBoat(); boat.add(hull);
   let sheave = hull.getObjectByName('sheave');
   const lit = new THREE.Group(); boat.add(lit);
-  const flood = new THREE.SpotLight(0xffdfad, 12, 40, .7, .55, 1.6); flood.position.set(-1.6, 5.8, 6.8); flood.target.position.set(0, 0, 9);
+  const flood = new THREE.SpotLight(0xffdfad, 12, 22, .7, .55, 1.6); flood.position.set(-1.6, 5.8, 6.8); flood.target.position.set(0, 0, 9);
   flood.castShadow = !mobile; flood.shadow.mapSize.set(1024, 1024); flood.shadow.bias = -.0004; lit.add(flood, flood.target);
-  const deck = new THREE.PointLight(0xffc98a, 12, 16, 2); deck.position.set(0, 3.6, 2.4); lit.add(deck);
+  const deck = new THREE.PointLight(0xffc98a, 12, 9, 2); deck.position.set(0, 3.6, 2.4); lit.add(deck);
   const cabin = new THREE.PointLight(0xffce9a, 18, 12, 2); cabin.position.set(-3.0, 4.2, -2.2); lit.add(cabin);
-  const sideSpill = new THREE.PointLight(0xc7c6c0, 24, 18, 2); sideSpill.position.set(3.5, 1.6, 0); lit.add(sideSpill);
+  const sideSpill = new THREE.PointLight(0xc7c6c0, 3, 18, 2); sideSpill.position.set(3.5, 1.6, 0); lit.add(sideSpill);
   const fitBoat = () => {
     // set the boat so its sheave hangs over the lamp's resting place, the origin
     boat.position.set(0, 0, 0); boat.rotation.set(0, 0, 0); boat.scale.setScalar(1); boat.updateMatrixWorld(true);
@@ -394,8 +404,8 @@ export function createBay(canvas) {
       else if (/mast_white|buoy_light|flood_lamp/.test(n)) glow(o.material, 0xffdfaf, 1.35);
       if (o.material.name === 'warm worklamp') glow(o.material, 0xffc985, 1.5);
       if (o.material.name === 'window_lit') glow(o.material, 0xffd9a3, 2.2);
-      // Keep the deck warm and matte while the boat texture is being corrected.
-      if (o.material.name === 'non slip aft deck') o.material = new THREE.MeshStandardMaterial({ color: 0x31261b, roughness: 1 });
+      if (/survey hull/.test(o.material.name)) glow(o.material, 0x18324a, .32);
+      if (o.material.name === 'non slip aft deck') o.material = new THREE.MeshStandardMaterial({ color: 0x171b1e, roughness: .65 });
     });
   };
   const ready = Promise.allSettled([
@@ -481,7 +491,7 @@ export function createBay(canvas) {
   document.addEventListener('mouseleave', () => { pointerActive = false; });
   const st = { dive: 0, floor: 0, fade: 0 };
   const tgt = new THREE.Vector3(0, HANG, 0), lampPos = new THREE.Vector3(), viewAim = new THREE.Vector3(), parallax = new THREE.Vector3();
-  const cableEnd = new THREE.Vector3(), cableAxis = new THREE.Vector3(), boatCenter = new THREE.Vector3();
+  const cableEnd = new THREE.Vector3(), cableAxis = new THREE.Vector3(), boatCenter = new THREE.Vector3(), reflectionAnchor = new THREE.Vector3();
   let W = 1, H = 1, time = 0;
   const resize = () => {
     const dpr = Math.min(mobile ? 1.5 : 2, devicePixelRatio || 1);
@@ -504,7 +514,7 @@ export function createBay(canvas) {
     flood.intensity = 12 * lightBoost;
     deck.intensity = 12 * lightBoost;
     cabin.intensity = 18 * lightBoost;
-    sideSpill.intensity = 24 * lightBoost;
+    sideSpill.intensity = 3 * lightBoost;
     const base = boat.userData.base;
     boatCenter.copy(base).multiplyScalar(boatScale).applyAxisAngle(THREE.Object3D.DEFAULT_UP, heading);
     const hullWave = (x, z) => waveHeight(boatCenter.x + headingCos * x + headingSin * z,
@@ -587,6 +597,12 @@ export function createBay(canvas) {
     // the camera follows the lamp down, but stays above the water until the lamp is well under, then drops through it
     viewAim.copy(tgt).add(parallax);
     camera.lookAt(viewAim);
+    camera.updateMatrixWorld();
+    cabin.getWorldPosition(reflectionAnchor);
+    reflectionAnchor.project(camera);
+    wu.cabinScreen.value.set(reflectionAnchor.x * .5 + .5, reflectionAnchor.y * .5 + .5);
+    reflectionAnchor.copy(lampPos).project(camera);
+    wu.lampScreen.value.set(reflectionAnchor.x * .5 + .5, reflectionAnchor.y * .5 + .5);
     const cu = camera.position.y < 0;
     const fogCol = cu ? fogBelow.clone().lerp(black, smooth(-2, -22, camera.position.y)) : fogAbove;
     scene.fog.color.copy(fogCol); scene.background.copy(fogCol);
