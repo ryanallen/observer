@@ -194,7 +194,7 @@ def boat_window_texture():
  tex=glass.node_tree.nodes.new('ShaderNodeTexImage');tex.image=image
  glass.node_tree.links.new(tex.outputs['Color'],p.inputs['Base Color'])
  glass.node_tree.links.new(tex.outputs['Color'],p.inputs['Emission Color'])
- p.inputs['Emission Strength'].default_value=.7
+ p.inputs['Emission Strength'].default_value=1.3
 
 def window_uv(obj,tile=0):
  """Give each pane a distinct lit interior from the four-pane atlas."""
@@ -779,7 +779,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v32.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v35.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
