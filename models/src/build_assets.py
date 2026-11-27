@@ -111,7 +111,7 @@ def boat_paint_texture(material,kind,base,seed):
      bare=math.exp(-((u-cx)/wu)**2-((v-cy)/wv)**2)*max(0,(b-.32)*1.6)
      wear=max(wear,min(.9,bare))
    elif kind=='white':
-    worn=(.39,.40,.37);oxide=(.34,.17,.075);rust*=1.4
+    worn=(.61,.60,.56);oxide=(.34,.17,.075);rust*=1.4
     corner=max(0,.085-min(u,1-u,v,1-v))/.085
     rust=max(rust,corner*(.26+.28*b),max(0,b-.54)*.44)
    elif kind=='roof':
@@ -133,7 +133,7 @@ def boat_paint_texture(material,kind,base,seed):
     stern_wear=max(0,1-u/.42)*math.exp(-((v-(.37+(b-.5)*.04))/.09)**2)
     wear=max(wear,min(1,stern_wear*(.65+.7*b)))
    else:worn=(.42,.46,.44);oxide=(.25,.14,.085);rust=max(0.0,b-.74)*.3
-   if kind=='white':grain+=(a-.5)*.12+max(0,b-.54)*-.22
+   if kind=='white':grain+=(a-.5)*.10+max(0,b-.54)*-.12
    if kind=='hull':grain+=(a-.5)*.13
    color=[base[k]*(1+grain)+wear*(worn[k]-base[k])*.75 for k in range(3)]
    color=[max(.002,min(1,color[k]*(1-rust*.86)+oxide[k]*rust*.86)) for k in range(3)]
@@ -233,7 +233,7 @@ def window_uv(obj,tile=0):
 
 def boat():
  white.name='weathered offwhite superstructure';navy_hull.name='survey hull textured blue paint'
- for material,kind,base,seed in ((white,'white',(.83,.81,.75),11),(roof,'roof',(.48,.51,.55),19),(navy,'hull',(.09,.185,.31),12),(navy_hull,'hull',(.09,.185,.31),12),(red,'red',(.17,.045,.026),16),(orange,'orange',(.75,.245,.048),14),(steel,'steel',(.31,.33,.31),15)):
+ for material,kind,base,seed in ((white,'white',(1.0,.98,.92),11),(roof,'roof',(.48,.51,.55),19),(navy,'hull',(.09,.185,.31),12),(navy_hull,'hull',(.09,.185,.31),12),(red,'red',(.17,.045,.026),16),(orange,'orange',(.75,.245,.048),14),(steel,'steel',(.31,.33,.31),15)):
   boat_paint_texture(material,kind,base,seed)
  boat_normal_texture((white,roof,navy,navy_hull,orange,steel))
  boat_window_texture()
@@ -809,7 +809,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v53.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v54.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
