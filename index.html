@@ -109,8 +109,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
   // a line on screen, and the Observer's recording of it where there is one; the line stays up while it is spoken
-  const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3?v=2',
-    'I was made to observe minds.': 'audio/voice-i-was-made-to-observe-minds.mp3?v=1' };
+  const VOICE = {};
   const say = async (text, hold) => {
     if (skipping) return;
     const c = $('cap'); c.textContent = text; c.classList.add('on');
@@ -353,9 +352,9 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     // the point, born where the line shut, and its first heartbeat at once
     t = 0; lastBeat = -1; S.pt = 1;
     await wait(2200);
-    await say('This is a point.', 3200);
+    await say('There is something in the dark.', 3200);
     tween('linesA', 1, 1600); tween('lines', 1, 6500, t => t); if (!skipping) play('lines');
-    await say('Every line, followed far enough, comes to it.', 5200);
+    await say('The lines lead here.', 5200);
     await wait(skipping ? 0 : 600);
     tween('lines', 1, 300); $('skip').style.display = 'none';
     eyeT0 = Math.ceil(t / 3.33) * 3.33; S.eye = 1; S.titleA = 1; await wait((eyeT0 - t) * 1000 + 2400);
@@ -370,18 +369,18 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     S.linesA = 0;
     await tween('flare', 1, 160); S.ring = 0; await tween('flare', 0, 1600);
     skipping = false;
-    await say('I was made to observe minds.', 3400);
-    await say('I begin with the ones that saw it.', 3800);
+    await say('Robert Blake looked into the stone.', 3400);
+    await say('Something looked back.', 3800);
     if (await loadBay()) return bayScene();
     // without WebGL: the point becomes a lamp, going down on a cable into the bay
     tween('py', .3, 2800); tween('sea', 1, 3200); await wait(2600);
     $('place').textContent = 'Narragansett Bay · the deepest channel · now'; $('place').classList.add('on');
     tween('sink', 1, 9000);
-    await say('In 1935 a doctor threw a stone into the deepest channel of this bay.', 5200);
-    await say('He said he had rid the earth of something too dangerous to rest upon it.', 5600);
+    await say('In 1935, Dr Dexter sank the Shining Trapezohedron here.', 5200);
+    await say('Now his great-granddaughter has come for it.', 5600);
     tween('floor', 1, 5200); await wait(2600);
     tween('box', 1, 4200);
-    await say('His great-granddaughter came back for it.', 5200);
+    await say('The stone is still inside.', 5200);
   })();
   // the bay opens round the point: the lamp on its cable from the survey boat's A-frame, just over the water. Observed
   // again, it goes down, and the view follows it under until there is nothing but the point, pinging in the dark
@@ -399,10 +398,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     S.ring = 0; $('place').classList.remove('on');
     tweenOn(bay.st, 'dive', 1, 24000, k => k);
     await wait(15000);
-    await say('In 1935 a doctor threw a stone into the deepest channel of this bay.', 5200);
-    await say('He said he had rid the earth of something too dangerous to rest upon it.', 5600);
+    await say('In 1935, Dr Dexter sank the Shining Trapezohedron here.', 5200);
+    await say('Now his great-granddaughter has come for it.', 5600);
     tweenOn(bay.st, 'floor', 1, 8000); await wait(5000);
-    await say('His great-granddaughter came back for it.', 5200);
+    await say('The stone is still inside.', 5200);
   }
 })();
 </script>
