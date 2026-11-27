@@ -130,7 +130,8 @@ function makeWater(renderer, scene, sky, res) {
           float fineCrest = smoothstep(.45, .70, vnoise(wp.xz * vec2(5.0, 8.0) + vec2(time * .12, -time * .18)));
           float swellSheen = longCrest * fineCrest * sideFade * smoothstep(.30, .75, screenUv.y);
           float lowerSheen = pow(1.0 - screenUv.y, 1.2) * exp(-pow((screenUv.x - .20) / .65, 2.0));
-          vec3 col = waterColor + vec3(.006, .007, .008) * longCrest * (1.0 - .65 * lowerSheen)
+          vec3 col = waterColor + vec3(.0060, .0080, .0080) * (1.0 - step(.1, moonDive))
+                   + vec3(.006, .007, .008) * longCrest * (1.0 - .65 * lowerSheen)
                    + vec3(.012, .012, .012) * swellSheen
                    + vec3(.0040, .0045, .0050) * lowerSheen
                    + vec3(.006, .0075, .009) * wavelets * crestNoise;
