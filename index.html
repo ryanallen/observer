@@ -96,7 +96,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 
   // ---- state the drawing reads ----
   const S = {
-    ink: 0,           // black ink closing in from the edges, after the stone is observed
+    dark: 0,          // the dark shot out from the stone on a heartbeat, 0 to 1 (all black)
+    clear: 0,         // the ring clearing it on a later heartbeat, 0 to 1
     lab: 0,           // the lab is showing
     pt: 0,            // the point's visibility
     py: .5,           // its height on screen, as a fraction
@@ -125,10 +126,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b55')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b56')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
-  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b55')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b56')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
@@ -315,36 +316,27 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   let lastShift = 0;
   // going under: the waterline sweeps up across the view, bubbles burst past, then it clears
   let washT0 = -1;
-  // the ink: blots from all round the edge that spread inward, wobbling, with drops thrown ahead of them, until all is black
-  const blots = Array.from({ length: 30 }, (_, i) => {
-    const u = (i + Math.random() * .6) / 30, side = Math.floor(u * 4), f = (u * 4) % 1;
-    const [x, y] = [[f, -.04], [1.04, f], [1 - f, 1.04], [-.04, 1 - f]][side];
-    return { x, y, s: .55 + Math.random() * .6, d: Math.random() * .3, ph: Math.random() * 6.28,
-      drops: Array.from({ length: 4 }, () => ({ a: Math.random() * 6.28, r: .05 + Math.random() * .07, o: 1.08 + Math.random() * .25 })) };
-  });
-  const inkFill = document.createElement('canvas');
-  const drawInkFill = k => {
-    if (k >= .995) { g.fillStyle = '#000'; g.fillRect(0, 0, W, H); return; }
-    const iw = Math.ceil(W / 3), ih = Math.ceil(H / 3);
-    if (inkFill.width !== iw || inkFill.height !== ih) { inkFill.width = iw; inkFill.height = ih; }
-    const x = inkFill.getContext('2d'); x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, iw, ih); x.setTransform(1 / 3, 0, 0, 1 / 3, 0, 0);
-    x.fillStyle = '#000';
-    const reach = Math.hypot(W, H) * .78;
-    for (const b of blots) {
-      const local = Math.max(0, Math.min(1, (k - b.d) / (1 - b.d)));
-      if (!local) continue;
-      const R = reach * b.s * local, bx = b.x * W, by = b.y * H;
-      x.beginPath();
-      for (let j = 0; j <= 40; j++) {
-        const a = j / 40 * Math.PI * 2, w = 1 + .13 * Math.sin(a * 3 + b.ph) + .07 * Math.sin(a * 7 - b.ph * 2 + t * .7) + .04 * Math.sin(a * 13 + t);
-        j ? x.lineTo(bx + Math.cos(a) * R * w, by + Math.sin(a) * R * w) : x.moveTo(bx + Math.cos(a) * R * w, by + Math.sin(a) * R * w);
-      }
-      x.closePath(); x.fill();
-      for (const d of b.drops) { x.beginPath(); x.arc(bx + Math.cos(d.a) * R * d.o, by + Math.sin(d.a) * R * d.o, R * d.r, 0, 7); x.fill(); }
+  // the dark: on a heartbeat a disc of darkness shoots out from the point, widening fast like its ping, until the
+  // screen is black; on a later beat a clearing ring widens from the centre and the dark is gone. Soft edges, fast out
+  const drawDark = () => {
+    const far = Math.max(Math.hypot(cx0(), cy0()), Math.hypot(W - cx0(), cy0()), Math.hypot(cx0(), H - cy0()), Math.hypot(W - cx0(), H - cy0())) + 40;
+    if (S.clear > 0) {
+      const r = S.clear * Math.hypot(W, H) * .62, soft = Math.max(30, r * .18);
+      const gr = g.createRadialGradient(W / 2, H / 2, Math.max(0, r - soft), W / 2, H / 2, r + 1);
+      gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,1)');
+      g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      return;
     }
-    // scaled up from a third of the size, its edges come out soft without a blur pass
-    g.drawImage(inkFill, 0, 0, iw, ih, 0, 0, iw * 3, ih * 3);
+    if (S.dark >= 1) { g.fillStyle = '#000'; g.fillRect(0, 0, W, H); return; }
+    const r = S.dark * far, soft = Math.max(30, r * .2);
+    const gr = g.createRadialGradient(cx0(), cy0(), Math.max(0, r - soft), cx0(), cy0(), r + 1);
+    gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
   };
+  const cx0 = () => P.x, cy0 = () => P.y;
+  // a promise kept on the next heartbeat
+  const beatWaiters = [];
+  const onBeat = () => new Promise(r => beatWaiters.push(r));
   const washBubbles = Array.from({ length: 70 }, () => ({ x: Math.random(), y: .55 + Math.random() * .6, r: 1.5 + Math.pow(Math.random(), 2.2) * 16, v: .7 + Math.random() * .9, w: Math.random() * 6.28, d: Math.random() * .25 }));
   const drawWash = k => {
     // the waterline passes from below the frame to above it in the first 0.45 of the effect
@@ -597,7 +589,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
         g.strokeStyle = `rgba(255,246,228,${ea})`; eyePath(cx + eyeDx, cy + eyeDy, 4 + A * eo, 2 + B * eo); g.stroke();
       }
       // the heartbeat, on each ping
-      const n = Math.floor(t / 3.33); if (n !== lastBeat) { lastBeat = n; if (S.pt > .5) beat(); }
+      const n = Math.floor(t / 3.33); if (n !== lastBeat) { lastBeat = n; if (S.pt > .5) beat(); beatWaiters.splice(0).forEach(f => f()); }
     }
     // the hold ring
     // the ring fills round the cursor while it rests on the point
@@ -606,7 +598,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       g.strokeStyle = 'rgba(233,228,218,.14)'; g.lineWidth = 1; g.beginPath(); g.arc(rx, ry, rr, 0, Math.PI * 2); g.stroke();
       g.strokeStyle = 'rgba(233,228,218,.9)'; g.lineWidth = 1.6; g.beginPath(); g.arc(rx, ry, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * S.ring); g.stroke();
     }
-    if (S.ink > 0) drawInkFill(S.ink);
+    if (S.dark > 0) drawDark();
     if (washT0 >= 0) { const k = (t - washT0) / 1.3; if (k >= 1) washT0 = -1; else drawWash(k); }
     if (S.flare > 0) { g.fillStyle = `rgba(255,248,236,${S.flare * .9})`; g.fillRect(0, 0, W, H); }
     requestAnimationFrame(draw);
@@ -685,7 +677,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     // nothing but the way in; its click is what lets a browser play the sound
     const b = $('begin'); await wait(400); b.classList.add('on'); b.focus({ preventScroll: true });
     if (q0.get('at') === 'bay') { b.remove(); S.pt = 1; skipping = false; loadBay(); await bayScene(); return; }
-    if (q0.get('at') === 'lab') { b.remove(); S.pt = 1; S.bay = 1; S.ink = 1; skipping = false; if (await loadLab()) await labScene(); return; }
+    if (q0.get('at') === 'lab') { b.remove(); S.pt = 1; S.bay = 1; S.dark = 1; skipping = false; if (await loadLab()) await labScene(); return; }
     await new Promise(res => b.addEventListener('click', e => { e.stopPropagation(); if (want) { startSound(); play('tremble'); } loadBay(); res(); }, { once: true }));
     b.blur(); b.classList.add('tremble'); await wait(500);
     b.classList.remove('tremble'); b.classList.add('line'); await wait(110);
@@ -793,23 +785,26 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     S.ring = 0;
     tweenOn(bay.st, 'close', 1, 3200);
     await tweenOn(bay.st, 'stone', 1, 3200);
-    // as the view settles on the stone the ink floods in by itself, slow at first, then all at once
-    // the lab loads while the ink closes; the sea's sound goes down with the light
+    // as the view settles on the stone, the next heartbeat shoots the dark out from it; the lab loads while it is black,
+    // and the sea's sound goes down with the light
     const labReady = loadLab();
-    fade('deep', 0, 3200);
-    await tween('ink', 1, 3600, k => k * k * k);
+    await onBeat();
+    fade('deep', 0, 1600);
+    await tween('dark', 1, 650, k => 1 - Math.pow(1 - k, 2));
     // all black: the bay is let go, every model, texture and sound of it
     release('deep'); release('bubbles');
     bay.dispose(); $('bay').remove(); bay = null; window.observerBay = null;
     if (!(await labReady)) return;
     return labScene();
   }
-  // Ruth's lab: the ink draws back off the room; the box on the table pings; resting on it opens it
+  // Ruth's lab: on a heartbeat the dark clears off the room; the box on the table pings; resting on it opens it
   async function labScene() {
     // its first frame, with every shader and texture made ready, is drawn while the screen is still black
     lab.render(0); await wait(50);
     $('lab').style.opacity = 1; S.lab = 1; $('skip').style.display = 'none';
-    await tween('ink', 0, 3200, k => 1 - Math.pow(1 - k, 3));
+    await onBeat();
+    await tween('clear', 1, 900, k => 1 - Math.pow(1 - k, 2));
+    S.dark = 0; S.clear = 0;
     let seen = false;
     (async () => { await wait(7000); while (!seen) { tip('observe', howToNow(), 4500); await wait(16000); } })();
     await waitHold(); seen = true; hideTip('observe');
