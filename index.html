@@ -109,10 +109,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b45')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b46')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
-  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b45')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b46')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
@@ -676,8 +676,14 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     const left = Math.max(2500, diveMs - (performance.now() - dive0));
     tweenOn(bay.st, 'floor', 1, left);
     await wait(left);
-    // the ping passes from the lamp to the stone, and the view brings the stone to the centre
-    await tweenOn(bay.st, 'stone', 1, 2800);
+    // the view holds on the lamp at the floor until the lamp is observed; only then does it close in and bring the stone
+    // to the centre, the ping passing from the lamp to the stone
+    let lampSeen = false;
+    (async () => { await wait(7000); while (!lampSeen) { tip('observe', howTo, 4500); await wait(16000); } })();
+    await waitHold(); lampSeen = true; hideTip('observe');
+    S.ring = 0;
+    tweenOn(bay.st, 'close', 1, 3200);
+    await tweenOn(bay.st, 'stone', 1, 3200);
     // resting on the stone (after leaving it and coming back) floods the view with ink, slow at first, then all at once
     let seen = false;
     (async () => { await wait(7000); while (!seen) { tip('observe', howTo, 4500); await wait(16000); } })();
