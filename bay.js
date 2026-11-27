@@ -362,7 +362,7 @@ export function createBay(canvas) {
   flood.castShadow = !mobile; flood.shadow.mapSize.set(1024, 1024); flood.shadow.bias = -.0004; lit.add(flood, flood.target);
   const deck = new THREE.PointLight(0xffc98a, 12, 16, 2); deck.position.set(0, 3.6, 2.4); lit.add(deck);
   const cabin = new THREE.PointLight(0xffce9a, 18, 12, 2); cabin.position.set(-3.0, 4.2, -2.2); lit.add(cabin);
-  const sideSpill = new THREE.PointLight(0xffbd81, 30, 18, 2); sideSpill.position.set(3.5, 1.6, 0); lit.add(sideSpill);
+  const sideSpill = new THREE.PointLight(0xc7c6c0, 24, 18, 2); sideSpill.position.set(3.5, 1.6, 0); lit.add(sideSpill);
   const fitBoat = () => {
     // set the boat so its sheave hangs over the lamp's resting place, the origin
     boat.position.set(0, 0, 0); boat.rotation.set(0, 0, 0); boat.scale.setScalar(1); boat.updateMatrixWorld(true);
@@ -383,7 +383,7 @@ export function createBay(canvas) {
       if (/nav_red/.test(n)) glow(o.material, 0xff4d28, 1.6);
       else if (/nav_green/.test(n)) glow(o.material, 0x1aff5a, 8);
       else if (/mast_white|buoy_light|flood_lamp/.test(n)) glow(o.material, 0xffdfaf, 1.35);
-      if (o.material.name === 'window_lit') glow(o.material, 0xffd3a0, 1.3);
+      if (o.material.name === 'window_lit') glow(o.material, 0xffd9a3, 2.2);
       // Keep the deck warm and matte while the boat texture is being corrected.
       if (o.material.name === 'non slip aft deck') o.material = new THREE.MeshStandardMaterial({ color: 0x31261b, roughness: 1 });
     });
@@ -488,13 +488,13 @@ export function createBay(canvas) {
     time += dt;
     const d = st.dive, fl = st.floor;
     // The hull samples the same surface at bow, stern, port and starboard.
-    const boatScale = mix(1.4, 1, smooth(0, .18, d));
+    const boatScale = mix(1.14, 1, smooth(.55, .70, d));
     boat.scale.setScalar(boatScale);
     const lightBoost = boatScale * boatScale;
     flood.intensity = 12 * lightBoost;
     deck.intensity = 12 * lightBoost;
     cabin.intensity = 18 * lightBoost;
-    sideSpill.intensity = 30 * lightBoost;
+    sideSpill.intensity = 24 * lightBoost;
     const base = boat.userData.base;
     boatCenter.copy(base).multiplyScalar(boatScale).applyAxisAngle(THREE.Object3D.DEFAULT_UP, heading);
     const hullWave = (x, z) => waveHeight(boatCenter.x + headingCos * x + headingSin * z,
