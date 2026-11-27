@@ -57,7 +57,7 @@ function makeWater(renderer, scene, sky, res) {
   const uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
     mirrorSampler: { value: null }, normalSampler: { value: waterNormals() }, time: { value: 0 }, textureMatrix: { value: textureMatrix },
     eye: { value: new THREE.Vector3() }, waterColor: { value: new THREE.Color(0x010305) },
-    moonDir: { value: new THREE.Vector3() }, moonColor: { value: new THREE.Color(0.88, 0.91, 0.96) },
+    moonDir: { value: new THREE.Vector3() }, moonColor: { value: new THREE.Color(0.88, 0.91, 0.96) }, moonDive: { value: 0 },
     lampPos: { value: new THREE.Vector3() }, lampPow: { value: 1 }, screenSize: { value: new THREE.Vector2(1, 1) },
     swell: { value: SWELL.map(w => new THREE.Vector4(w.dir[0], w.dir[1], w.k, w.amp)) },
     swellMotion: { value: SWELL.map(w => new THREE.Vector2(w.speed, w.steep)) },
@@ -91,7 +91,7 @@ function makeWater(renderer, scene, sky, res) {
         #include <fog_vertex>
       }`,
     fragmentShader: /* glsl */`
-      uniform sampler2D mirrorSampler, normalSampler; uniform float time, lampPow; uniform vec2 screenSize; uniform vec3 eye, waterColor, moonDir, moonColor, lampPos;
+      uniform sampler2D mirrorSampler, normalSampler; uniform float time, lampPow, moonDive; uniform vec2 screenSize; uniform vec3 eye, waterColor, moonDir, moonColor, lampPos;
       uniform vec4 swell[4]; uniform vec2 swellMotion[4];
       varying vec4 mirrorCoord; varying vec3 wp, swellNormal;
       #include <common>
@@ -160,14 +160,17 @@ function makeWater(renderer, scene, sky, res) {
           vec3 moonLow = normalize(vec3(moonDir.x + .15, moonDir.y - .30, moonDir.z));
           spec += pow(max(dot(v, reflect(-moonHigh, fine)), 0.0), 780.0) * .30;
           spec += pow(max(dot(v, reflect(-moonLow, fine)), 0.0), 780.0) * .30;
-          float fleck = spec * smoothstep(.23, .48, facets) * (.30 + .70 * longCrest);
+          float topThin = smoothstep(.68, .95, screenUv.y);
+          float fleck = spec * smoothstep(.23 + .15 * topThin + .22 * moonDive,
+                                         .48 + .15 * topThin + .18 * moonDive, facets) * (.30 + .70 * longCrest);
           float crestGlint = .3 + .7 * smoothstep(-.15, .27, wp.y);
           float topLight = .35 + 4.0 * smoothstep(.58, .80, screenUv.y)
                          - 1.0 * smoothstep(.90, 1.0, screenUv.y);
-          col += moonColor * lane * upper * fleck * crestGlint * topLight * 2.3;
+          col += moonColor * lane * upper * fleck * crestGlint * topLight * 2.3 * (1.0 - .55 * moonDive);
           float farFlecks = smoothstep(.38, .80, screenUv.y)
-                           * smoothstep(.34, .58, facets) * (.25 + .75 * longCrest);
-          col += moonColor * lane * farFlecks * .60;
+                           * smoothstep(.34 + .12 * topThin + .16 * moonDive,
+                                        .58 + .12 * topThin + .15 * moonDive, facets) * (.25 + .75 * longCrest);
+          col += moonColor * lane * farFlecks * .60 * (1.0 - .55 * moonDive);
           float submergedLamp = 1.0 - step(-0.1, lampPos.y);
           float shallowLamp = submergedLamp * exp(-max(-lampPos.y, 0.0) * .16);
           float underTransmission = shallowLamp * exp(-dot(wp.xz - lampPos.xz, wp.xz - lampPos.xz) / 1.2);
@@ -275,15 +278,13 @@ export function createBay(canvas) {
   const { water, uniforms: wu, target: waterTarget } = makeWater(renderer, scene, sky, mobile ? 384 : 768);
   wu.moonDir.value.copy(moonDir); scene.add(water);
 
-  // the lamp: a small caged light on the cable, and its light
+  // the lamp: a warm globe on the cable, and its light
   const lamp = new THREE.Group();
   const cage = new THREE.MeshStandardMaterial({ color: 0x303739, roughness: .62, metalness: .75 });
-  const topCap = new THREE.Mesh(new THREE.CylinderGeometry(.17, .18, .09, 20), cage); topCap.position.y = .27; lamp.add(topCap);
-  const bottomCap = new THREE.Mesh(new THREE.CylinderGeometry(.16, .16, .06, 20), cage); bottomCap.position.y = -.24; lamp.add(bottomCap);
-  const glass = new THREE.Mesh(new THREE.CylinderGeometry(.135, .135, .43, 20, 1, true), new THREE.MeshBasicMaterial({ color: 0xe9a459, transparent: true, opacity: .38, depthWrite: false, side: THREE.DoubleSide })); lamp.add(glass);
-  const bulb = new THREE.Mesh(new THREE.SphereGeometry(.105, 20, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.45, .72) }));
+  const topCap = new THREE.Mesh(new THREE.CylinderGeometry(.09, .10, .06, 20), cage); topCap.position.y = .20; lamp.add(topCap);
+  const glass = new THREE.Mesh(new THREE.SphereGeometry(.18, 24, 16), new THREE.MeshBasicMaterial({ color: 0xf0b979, transparent: true, opacity: .4, depthWrite: false, toneMapped: false })); lamp.add(glass);
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(.15, 24, 16), new THREE.MeshBasicMaterial({ color: 0xe9aa68, toneMapped: false }));
   lamp.add(bulb);
-  for (let i = 0; i < 4; i++) { const bar = new THREE.Mesh(new THREE.CylinderGeometry(.008, .008, .43), cage); const a = i / 4 * Math.PI * 2; bar.position.set(Math.cos(a) * .16, 0, Math.sin(a) * .16); lamp.add(bar); }
   const lampLight = new THREE.PointLight(LAMP_COLOR, 30, 0, 2); lamp.add(lampLight);
   const spot = new THREE.SpotLight(LAMP_COLOR, 0, 0, .75, 1.0, 1.6); spot.position.y = -.25; lamp.add(spot); lamp.add(spot.target); spot.target.position.set(0, -10, 0);
   lamp.scale.setScalar(1.7);
@@ -383,6 +384,7 @@ export function createBay(canvas) {
       if (/nav_red/.test(n)) glow(o.material, 0xff4d28, 1.6);
       else if (/nav_green/.test(n)) glow(o.material, 0x1aff5a, 8);
       else if (/mast_white|buoy_light|flood_lamp/.test(n)) glow(o.material, 0xffdfaf, 1.35);
+      if (o.material.name === 'warm worklamp') glow(o.material, 0xffc985, 1.5);
       if (o.material.name === 'window_lit') glow(o.material, 0xffd9a3, 2.2);
       // Keep the deck warm and matte while the boat texture is being corrected.
       if (o.material.name === 'non slip aft deck') o.material = new THREE.MeshStandardMaterial({ color: 0x31261b, roughness: 1 });
@@ -530,7 +532,7 @@ export function createBay(canvas) {
     coneMat.uniforms.amt.value = under * (1 - deep * .55);
     snowMat.uniforms.amt.value = under * camUnder * (1 - deep * .4);
     snowMat.uniforms.lampPos.value.copy(lampPos); snowMat.uniforms.time.value = time;
-    wu.lampPos.value.copy(lampPos); wu.lampPow.value = 1 - deep; wu.time.value = time;
+    wu.lampPos.value.copy(lampPos); wu.lampPow.value = 1 - deep; wu.time.value = time; wu.moonDive.value = smooth(0, .045, d);
     if (buoy) {
       const x = buoy.position.x, z = buoy.position.z;
       buoy.position.y = waveHeight(x, z, time);
