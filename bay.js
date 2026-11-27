@@ -616,9 +616,15 @@ export function createBay(canvas) {
   // Only the still shore, rocks and sky come from the sharp plate; every open
   // water pixel remains the live moving mesh. The focus pass follows it.
   const plate = new ShaderPass({
-    uniforms: { tDiffuse: { value: null }, scenery: { value: null }, stillMask: { value: null }, depthMap: { value: null }, sceneCam: { value: new THREE.Vector2() }, zoom: { value: 1 }, aspect: { value: 1.777 } },
+    uniforms: { tDiffuse: { value: null }, scenery: { value: null }, stillMask: { value: null }, depthMap: { value: null }, shoreMap: { value: null }, shoreReady: { value: 0 }, surfTime: { value: 0 }, sceneCam: { value: new THREE.Vector2() }, zoom: { value: 1 }, aspect: { value: 1.777 } },
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: `uniform sampler2D tDiffuse, scenery, stillMask, depthMap; uniform vec2 sceneCam; uniform float zoom, aspect; varying vec2 vUv;
+    fragmentShader: `uniform sampler2D tDiffuse, scenery, stillMask, depthMap, shoreMap; uniform vec2 sceneCam; uniform float zoom, aspect, shoreReady, surfTime; varying vec2 vUv;
+      float h(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise2(vec2 p) {
+        vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(h(i), h(i + vec2(1.0, 0.0)), f.x),
+                   mix(h(i + vec2(0.0, 1.0)), h(i + 1.0), f.x), f.y);
+      }
       void main() {
         vec3 live = texture2D(tDiffuse, vUv).rgb;
         float scale = mix(1.0, 3.1, smoothstep(0.0, 1.0, zoom));
@@ -635,7 +641,51 @@ export function createBay(canvas) {
         vec2 skyUv = vec2(mix(.70, .50, crop) + (uv.x - .5) * crop, uv.y);
         vec3 photoSky = pow(texture2D(scenery, skyUv).rgb, vec3(.80));
         photo = mix(photo, photoSky, 1.0 - smoothstep(.13, .20, y));
-        gl_FragColor = vec4(mix(live, photo, still * fade), 1.0);
+        vec3 color = mix(live, photo, still * fade);
+        if (shoreReady > .5 && fade > .01) {
+          // The shore map is signed distance in source pixels: 128 at the
+          // waterline, lighter inland, darker in water. The foam crests climb
+          // the rock on one swell, then drain back on the next.
+          vec2 sourcePx = uv * vec2(1672.0, 941.0);
+          float distancePx = texture2D(shoreMap, uv).r * 255.0 - 128.0;
+          if (abs(distancePx) < 28.0) {
+            // Each swell reaches the shore at a different moment along it, so
+            // only stretches of the rock are breaking at any time.
+            float along = sourcePx.x * .013 + 1.6 * sin(sourcePx.x * .004 + sourcePx.y * .009);
+            float swell = sin(surfTime * 1.05 - along);
+            float surge = pow(max(swell, 0.0), 2.5);
+            float wash = pow(max(sin(surfTime * 1.05 - along - .9), 0.0), 1.5);
+            // the white climbs the rock as the swell lands, then drains back off it
+            float runup = -4.0 + 9.0 * surge;
+            vec2 q = mat2(.8, -.6, .6, .8) * sourcePx;
+            float n = .6 * noise2(q * .11 + vec2(surfTime * .5, -surfTime * .3))
+                    + .4 * noise2(q * .29 - vec2(surfTime * .9, surfTime * .6));
+            float broken = smoothstep(.36, .72, n);
+            float foam = exp(-pow((distancePx - runup) / (1.6 + 2.4 * surge), 2.0)) * surge * broken;
+            // what the last swell left: thin streaks pulled out on the water
+            float lace = exp(-pow((distancePx + 3.0 + 6.0 * (1.0 - wash)) / 3.0, 2.0)) * wash * (1.0 - surge) * .6
+                       * smoothstep(.55, .85, noise2(sourcePx * vec2(.11, .45) + vec2(surfTime * .3, surfTime * .8)));
+            float spray = 0.0;
+            vec2 cell = floor(sourcePx / 13.0);
+            for (int ix = -1; ix <= 1; ix++) for (int iy = -1; iy <= 1; iy++) {
+              vec2 id = cell + vec2(float(ix), float(iy));
+              float seed = h(id);
+              if (seed < .80) continue;
+              vec2 origin = (id + .5) * 13.0;
+              float atLine = abs(texture2D(shoreMap, origin / vec2(1672.0, 941.0)).r * 255.0 - 128.0);
+              // a burst only goes up where that stretch of shore is breaking
+              float hit = pow(max(sin(surfTime * 1.05 - (origin.x * .013 + 1.6 * sin(origin.x * .004 + origin.y * .009)) + .35), 0.0), 4.0);
+              float age = fract(surfTime * (.65 + .4 * h(id + 17.0)) + seed);
+              vec2 bead = origin + vec2((h(id + 7.0) - .5) * age * 13.0,
+                                         age * 30.0 - age * age * 16.0);
+              float radius = mix(2.4, .7, age);
+              spray += (1.0 - smoothstep(radius * .5, radius, length(sourcePx - bead)))
+                     * (1.0 - smoothstep(2.0, 8.0, atLine)) * (1.0 - age) * hit;
+            }
+            color += vec3(.62, .68, .72) * (foam * 1.1 + lace * .45 + spray * 1.0) * fade;
+          }
+        }
+        gl_FragColor = vec4(color, 1.0);
       }`,
   });
   plate.enabled = false;
@@ -656,6 +706,11 @@ export function createBay(canvas) {
     focus.uniforms.photoDepth.value = depthMap;
     plateReady = true;
   }).catch(e => console.warn('Zoom-out scenery unavailable', e));
+  plateLoader.loadAsync('models/web/zoomout_a_shore.png').then(shoreMap => {
+    shoreMap.minFilter = THREE.LinearFilter;
+    plate.uniforms.shoreMap.value = shoreMap;
+    plate.uniforms.shoreReady.value = 1;
+  }).catch(() => {});
   composer.addPass(plate);
   composer.addPass(focus);
   const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .22, .25, .91); composer.addPass(bloom);
@@ -713,6 +768,7 @@ export function createBay(canvas) {
     const zoom = smooth(0, 1, st.zoom);
     plate.enabled = plateReady && zoom < .94;
     plate.uniforms.zoom.value = zoom;
+    plate.uniforms.surfTime.value = time;
     focus.uniforms.photoActive.value = plate.enabled ? 1 : 0;
     focus.uniforms.sceneZoom.value = zoom;
     moonDir.set(mix(-.35, -.62, zoom), mix(.035, .42, zoom), mix(-.90, -.66, zoom)).normalize();
