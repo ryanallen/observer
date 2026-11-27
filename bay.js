@@ -11,7 +11,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
-const SEABED = -52;          // the deepest channel, in metres
+const SEABED = -25;          // the deepest channel, in metres
 const BOX_SCALE = 3.5;       // the box is 220 mm across; drawn at the size the floor shot was framed for
 const BOX_SINK = .35;        // how far its foot sits under the silt: about a third of it buried
 const HANG = 2.3;            // the cable's length while the lamp waits over the water
@@ -312,7 +312,7 @@ function makeWater(renderer, scene, sky, res) {
     textureMatrix.set(.5, 0, 0, .5, 0, .5, 0, .5, 0, 0, .5, .5, 0, 0, 0, 1);
     textureMatrix.multiply(mirrorCam.projectionMatrix).multiply(mirrorCam.matrixWorldInverse);
     const cur = r.getRenderTarget(); water.visible = false;
-    const hidden = s.children.filter(o => o === sky || o.isPoints || o.position.y < -40);
+    const hidden = s.children.filter(o => o === sky || o.isPoints || o.position.y < -10);
     hidden.forEach(o => { o.userData.mirrorWasVisible = o.visible; o.visible = false; });
     r.setRenderTarget(rt); r.state.buffers.depth.setMask(true); r.clear(); r.render(s, mirrorCam);
     hidden.forEach(o => { o.visible = o.userData.mirrorWasVisible; });
@@ -476,6 +476,28 @@ export function createBay(canvas) {
   const floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ color: 0x8a826a, map: siltTex, normalMap: siltNrm, normalScale: new THREE.Vector2(1.4, 1.4), roughness: 1 }));
   floor.position.y = SEABED; floor.receiveShadow = true; scene.add(floor);
   const props = new THREE.Group(); props.position.y = SEABED; scene.add(props);
+  // the real silt, loaded with the floor: a colour and a height map, sampled at two sizes and angles
+  // blended by a slow noise, so no repeat shows in the lamp's pool
+  const siltMats = [floor.material];
+  let silt = null;
+  const applySilt = m => {
+    if (!silt) return;
+    m.map = silt.color; m.bumpMap = silt.height; m.bumpScale = 2.2; m.normalMap = null; m.color.set(0xe6dcc4);
+    m.onBeforeCompile = sh => {
+      sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>', `
+        vec2 siltA = vMapUv, siltB = mat2(.8, -.6, .6, .8) * vMapUv * .61 + vec2(.37, .11);
+        float siltK = smoothstep(.25, .75, .5 + .25 * sin(vMapUv.x * .83 + sin(vMapUv.y * .57) * 1.7) + .25 * sin(vMapUv.y * .71 - vMapUv.x * .29));
+        diffuseColor *= mix(texture2D(map, siltA), texture2D(map, siltB), siltK);`);
+    };
+    m.customProgramCacheKey = () => 'silt2';
+    m.needsUpdate = true;
+  };
+  const loadSilt = () => Promise.all(['models/web/silt_color.jpg', 'models/web/silt_height.jpg'].map(u => new THREE.TextureLoader().loadAsync(u))).then(([color, height]) => {
+    for (const t of [color, height]) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(16, 16); t.anisotropy = 4; }
+    color.colorSpace = THREE.SRGBColorSpace;
+    for (const t of [floor.material.map, floor.material.normalMap]) if (t) t.dispose();
+    silt = { color, height }; siltMats.forEach(applySilt);
+  });
 
   // the boat; its lights; it rides the swell, and the lamp hangs from its sheave
   const boat = new THREE.Group(); scene.add(boat);
@@ -558,6 +580,7 @@ export function createBay(canvas) {
   // the box, the stone and the seabed are only seen at the bottom of the dive: they load once the dive is chosen
   let floorLoad = null;
   const loadFloor = () => floorLoad || (floorLoad = Promise.allSettled([
+    loadSilt(),
     // the box, closed, tilted and half sunk in the silt, with the stone still inside it
     Promise.all([loader.loadAsync('models/web/box_cd.glb'), loader.loadAsync('models/web/stone.glb')]).then(([gb, gs]) => {
       const b = gb.scene; dress(b);
@@ -581,6 +604,8 @@ export function createBay(canvas) {
         const d = .8 + r * 1.1;
         o.position.x = bx + Math.cos(a) * d; o.position.z = bz + Math.sin(a) * d;
         o.position.y = floorY(o.position.x, o.position.z) - .04;
+        // the pot lies across the view, a little rolled and sunk, so it reads as lying on its side
+        if (o.name === 'lobster_pot') { o.rotation.set(0, Math.PI / 2 + .25, .12); o.position.y -= .05; }
       }
     }),
   ]));
@@ -629,7 +654,7 @@ export function createBay(canvas) {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     geo.setIndex(idx); geo.computeVertexNormals();
-    const mat = floor.material.clone(); mat.vertexColors = true;
+    const mat = floor.material.clone(); mat.vertexColors = true; siltMats.push(mat); applySilt(mat);
     const m = new THREE.Mesh(geo, mat); m.receiveShadow = true; m.castShadow = true; m.position.y = SEABED;
     return m;
   };
@@ -1011,7 +1036,7 @@ export function createBay(canvas) {
     sky.visible = !cu;
     // the floor loads once the dive is chosen; the surface is let go once it is far overhead
     if ((st.diveArmed || st.dive > 0) && !floorLoad) loadFloor();
-    if (!surfaceFreed && camera.position.y < -25 && d > .5) freeSurface();
+    if (!surfaceFreed && camera.position.y < -12 && d > .5) freeSurface();
     // the boat's lights go out of sight from deep down
     lit.visible = true;
     grain.uniforms.time.value = time % 10; grain.uniforms.dark.value = deep;
@@ -1020,5 +1045,38 @@ export function createBay(canvas) {
   };
   // the lamp on screen, in CSS pixels, for the point and its ping
   const screen = () => { const p = lampPos.clone().project(camera); return { x: (p.x * .5 + .5) * W, y: (-p.y * .5 + .5) * H }; };
-  return { st, look, render, screen, ready, renderer, scene, camera, get focusUv() { return focusAt.clone(); }, get lampY() { return lampPos.y; }, get box() { return box; } };
+  // compile every shader and draw one frame while the bay is still hidden, so its first visible frame doesn't stall
+  // one material at a time in idle moments, the scene's and the passes' own, then a single first draw
+  const idle = () => new Promise(r => window.requestIdleCallback ? requestIdleCallback(() => r(), { timeout: 400 }) : setTimeout(r, 60));
+  const warm = async () => {
+    const seen = new Set(), jobs = [];
+    scene.traverse(o => { for (const m of [].concat(o.material || [])) if (!seen.has(m)) { seen.add(m); jobs.push([o, camera, scene]); } });
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2)), flat = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    for (const pass of composer.passes) for (const k in pass) {
+      const v = pass[k];
+      for (const m of [].concat(v && (v.isMaterial ? v : Array.isArray(v) && v[0] && v[0].isMaterial ? v : []) || [])) {
+        if (seen.has(m)) continue; seen.add(m); const q = quad.clone(); q.material = m; jobs.push([q, flat, null]);
+      }
+      if (pass.fsQuad && pass.fsQuad.material && !seen.has(pass.fsQuad.material)) { const m = pass.fsQuad.material; seen.add(m); const q = quad.clone(); q.material = m; jobs.push([q, flat, null]); }
+    }
+    // each is drawn once, alone, into a tiny target: the driver links its program and uploads its textures then, not mid-pan
+    const tiny = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType });
+    const drawables = []; scene.traverse(x => { if (x.isMesh || x.isPoints || x.isLine) drawables.push(x); });
+    for (const [o, c, sc] of jobs) {
+      await idle();
+      try {
+        renderer.setRenderTarget(tiny);
+        if (sc) {
+          const keep = drawables.map(x => [x, x.visible, x.frustumCulled]);
+          drawables.forEach(x => { x.visible = x === o; }); o.frustumCulled = false;
+          renderer.render(scene, camera);
+          keep.forEach(([x, v, f]) => { x.visible = v; x.frustumCulled = f; });
+        } else renderer.render(o, c);
+      } catch (e) {}
+      renderer.setRenderTarget(null);
+    }
+    tiny.dispose();
+    await idle(); render(1 / 60);
+  };
+  return { st, look, render, screen, ready, warm, renderer, scene, camera, get focusUv() { return focusAt.clone(); }, get lampY() { return lampPos.y; }, get box() { return box; } };
 }

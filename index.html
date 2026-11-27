@@ -106,7 +106,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b42')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b43')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
@@ -130,7 +130,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     const a = i / 40 * Math.PI * 2 + (Math.sin(i * 12.9898) * .5) * .12;
     return { a, d: .55 + ((Math.sin(i * 78.233) * 43758.5) % 1 + 1) % 1 * .45, delay: (i * 7 % 40) / 40 };
   });
-  const followRay = rays.reduce((best, ray) => Math.abs(ray.a) < Math.abs(best.a) ? ray : best, rays[0]);
+  // the one line followed is the one running back to the left: the point travels on along it, the line trailing behind
+  const followRay = rays.reduce((best, ray) => Math.abs(ray.a - Math.PI) < Math.abs(best.a - Math.PI) ? ray : best, rays[0]);
   // ---- the title, drawn once offscreen so the eye can uncover it ----
   const titleCv = document.createElement('canvas'), tg = titleCv.getContext('2d');
   let titleW = 0, titleH = 0;
@@ -176,6 +177,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     sfx.tremble = new Audio('audio/tremble.mp3?v=1'); sfx.tremble.volume = .6;
     // the descent: the splash as the lamp goes in, then bubbles, then the deep
     sfx.splash = load('audio/splash.mp3?v=1', .7);
+    sfx.splash2 = load('audio/splash.mp3?v=1', .45);
     sfx.bubbles = load('audio/bubbles-loop.mp3?v=1', 0); sfx.bubbles.loop = true;
     sfx.deep = load('audio/deep-loop.mp3?v=1', 0); sfx.deep.loop = true;
   };
@@ -218,7 +220,41 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 
   let t = 0, last = performance.now();
   const ease01 = k => { k = Math.max(0, Math.min(1, k)); return k * k * (3 - 2 * k); };
+  const mix01 = (a, b, k) => a + (b - a) * k;
   const followLamp = { x: 0, y: 0 };
+  const ink = [0, 1, 2].map(() => document.createElement('canvas'));
+  // dust in the dark, in three depths, drifting past as the view travels along the line
+  const dust = [[70, .22, .42], [30, .55, .75], [10, .95, 1.25]].flatMap(([n, z0, z1]) =>
+    Array.from({ length: n }, () => ({ x: Math.random(), y: Math.random(), z: z0 + Math.random() * (z1 - z0), s: Math.random() })));
+  let lastShift = 0;
+  // going under: the waterline sweeps up across the view, bubbles burst past, then it clears
+  let washT0 = -1;
+  const washBubbles = Array.from({ length: 70 }, () => ({ x: Math.random(), y: .55 + Math.random() * .6, r: 1.5 + Math.pow(Math.random(), 2.2) * 16, v: .7 + Math.random() * .9, w: Math.random() * 6.28, d: Math.random() * .25 }));
+  const drawWash = k => {
+    // the waterline passes from below the frame to above it in the first 0.45 of the effect
+    const line = H * (1.12 - 2.4 * Math.min(1, k / .45));
+    const tint = (k < .45 ? 1 : 1 - (k - .45) / .55) * .55;
+    g.save();
+    const soft = g.createLinearGradient(0, line - H * .04, 0, line + H * .12);
+    soft.addColorStop(0, 'rgba(16,40,46,0)'); soft.addColorStop(.35, `rgba(16,40,46,${tint * .7})`); soft.addColorStop(1, `rgba(16,40,46,${tint})`);
+    g.fillStyle = soft; g.beginPath(); g.moveTo(0, H);
+    for (let x = 0; x <= W; x += 16) g.lineTo(x, line + Math.sin(x * .013 + k * 9) * H * .025 + Math.sin(x * .031 - k * 14) * H * .01);
+    g.lineTo(W, H); g.closePath(); g.fill();
+    if (k < .45) {
+      g.filter = 'blur(2px)'; g.strokeStyle = 'rgba(200,228,226,.16)'; g.lineWidth = 3; g.beginPath();
+      for (let x = 0; x <= W; x += 16) { const y = line + Math.sin(x * .013 + k * 9) * H * .025 + Math.sin(x * .031 - k * 14) * H * .01; x ? g.lineTo(x, y) : g.moveTo(x, y); }
+      g.stroke(); g.filter = 'none';
+    }
+    for (const b of washBubbles) {
+      const life = (k - b.d) / (1 - b.d); if (life <= 0 || life >= 1) continue;
+      const y = (b.y - b.v * life * 1.1) * H, x = b.x * W + Math.sin(b.w + life * 9) * b.r * .8;
+      const a = Math.sin(Math.PI * life) * .38, rr = b.r * (1 - .3 * life);
+      g.fillStyle = `rgba(190,222,222,${a * .12})`; g.strokeStyle = `rgba(210,236,236,${a})`; g.lineWidth = Math.max(.5, b.r * .07);
+      g.beginPath(); g.ellipse(x, y, rr, rr * (.85 + .15 * Math.sin(b.w + life * 20)), 0, 0, 7); g.fill(); g.stroke();
+      g.fillStyle = `rgba(235,250,250,${a * .8})`; g.beginPath(); g.arc(x - b.r * .35, y - b.r * .35, Math.max(.6, b.r * .18), 0, 7); g.fill();
+    }
+    g.restore();
+  };
   const openingCam = { x: 0, y: 0 };
 
   function draw(now) {
@@ -250,18 +286,23 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
         const feather = Math.min(W * .22, 280);
         // a soft, uneven front, so the dark never ends in a straight line
         const fw = 48 + feather * .5 * edge;
-        g.save(); g.fillStyle = '#000'; g.filter = `blur(${Math.max(6, W / 90)}px)`;
-        g.beginPath(); g.moveTo(seam - 80, -20);
+        // drawn at a quarter size and blurred there, then scaled up: cheap even without a graphics card
+        const iw = Math.ceil(W / 4), ih = Math.ceil(H / 4);
+        for (const c of ink) if (c.width !== iw || c.height !== ih) { c.width = iw; c.height = ih; }
+        const [fa, ta, out] = ink.map(c => c.getContext('2d'));
+        for (const x of [fa, ta, out]) { x.setTransform(1, 0, 0, 1, 0, 0); x.filter = 'none'; x.clearRect(0, 0, iw, ih); }
+        fa.setTransform(.25, 0, 0, .25, 0, 0); ta.setTransform(.25, 0, 0, .25, 0, 0);
+        fa.fillStyle = ta.fillStyle = '#000';
+        fa.beginPath(); fa.moveTo(seam - 80, -20);
         for (let y = -20; y <= H + 20; y += 12) {
           const v = .7 + .2 * Math.sin(y * .011 + t * .5) + .15 * Math.sin(y * .029 - t * .8 + 1.7);
-          g.lineTo(seam + fw * v, y);
+          fa.lineTo(seam + fw * v, y);
         }
-        g.lineTo(seam - 80, H + 20); g.closePath(); g.fill(); g.restore();
+        fa.lineTo(seam - 80, H + 20); fa.closePath(); fa.fill();
         // Darkness runs sideways off the edge like ink: tendrils of every length and
         // thickness, tapering to threads, their sides wobbling as they creep and pull
         // back, some shedding a drop off the end.
         const hash = n => { const v = Math.sin(n * 127.1) * 43758.5453; return v - Math.floor(v); };
-        g.save(); g.fillStyle = '#000'; g.filter = `blur(${Math.max(2, W / 420)}px)`;
         const count = Math.round(H / 24);
         for (let i = 0; i < count; i++) {
           const y = H * (i + hash(i + 1)) / count;
@@ -276,25 +317,45 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
           const at = u => y + slope * len * u + Math.sin(u * k + ph) * wav * u;
           const width = u => Math.max(.6, half * Math.pow(1 - u, taper) * (.78 + .22 * Math.sin(u * 11 + t * 1.7 + i * 5.1)));
           const steps = 24;
-          g.beginPath(); g.moveTo(seam - 4, at(0) - half * 1.4);
-          for (let j = 0; j <= steps; j++) { const u = j / steps; g.lineTo(seam + len * u, at(u) - width(u)); }
-          for (let j = steps; j >= 0; j--) { const u = j / steps; g.lineTo(seam + len * u, at(u) + width(u)); }
-          g.lineTo(seam - 4, at(0) + half * 1.4); g.closePath(); g.fill();
+          ta.beginPath(); ta.moveTo(seam - 4, at(0) - half * 1.4);
+          for (let j = 0; j <= steps; j++) { const u = j / steps; ta.lineTo(seam + len * u, at(u) - width(u)); }
+          for (let j = steps; j >= 0; j--) { const u = j / steps; ta.lineTo(seam + len * u, at(u) + width(u)); }
+          ta.lineTo(seam - 4, at(0) + half * 1.4); ta.closePath(); ta.fill();
           // a drop parting from the end now and then, drifting on and shrinking
           if (hash(i + 63) > .72) {
             const life = (t * (.25 + .3 * hash(i + 69)) + hash(i + 75)) % 1;
             const r = Math.max(.8, half * .3 + 1) * (1 - life);
-            g.beginPath(); g.arc(seam + len * (1 + .12 * life), at(1) + slope * len * .12 * life, r, 0, 7); g.fill();
+            ta.beginPath(); ta.arc(seam + len * (1 + .12 * life), at(1) + slope * len * .12 * life, r, 0, 7); ta.fill();
           }
           // a thinner thread branching off the larger tendrils
           if (half > H * .015) {
             const bu = .3 + .3 * hash(i + 81), bl = len * (.35 + .4 * hash(i + 87)), bs = (hash(i + 93) - .5) * .5;
             const bx = seam + len * bu, by = at(bu), bw = width(bu) * .45;
-            g.beginPath(); g.moveTo(bx - 2, by - bw);
-            for (let j = 0; j <= 12; j++) { const u = j / 12; g.lineTo(bx + bl * u, by + bs * bl * u + Math.sin(u * 6 + ph) * wav * .5 * u - bw * (1 - u)); }
-            for (let j = 12; j >= 0; j--) { const u = j / 12; g.lineTo(bx + bl * u, by + bs * bl * u + Math.sin(u * 6 + ph) * wav * .5 * u + bw * (1 - u)); }
-            g.closePath(); g.fill();
+            ta.beginPath(); ta.moveTo(bx - 2, by - bw);
+            for (let j = 0; j <= 12; j++) { const u = j / 12; ta.lineTo(bx + bl * u, by + bs * bl * u + Math.sin(u * 6 + ph) * wav * .5 * u - bw * (1 - u)); }
+            for (let j = 12; j >= 0; j--) { const u = j / 12; ta.lineTo(bx + bl * u, by + bs * bl * u + Math.sin(u * 6 + ph) * wav * .5 * u + bw * (1 - u)); }
+            ta.closePath(); ta.fill();
           }
+        }
+        out.filter = `blur(${Math.max(1.5, W / 360)}px)`; out.drawImage(ink[0], 0, 0);
+        out.filter = `blur(${Math.max(.5, W / 1600)}px)`; out.drawImage(ink[1], 0, 0);
+        g.drawImage(ink[2], 0, 0, iw, ih, 0, 0, iw * 4, ih * 4);
+      }
+      // dust whooshing by: near motes bigger, faster and soft, far ones fine and slow, each streaked by its own speed
+      const shift = S.follow * travel, speed = dt > 0 ? Math.min(W * 3, Math.abs(shift - lastShift) / dt) : 0; lastShift = shift;
+      const dustA = ease01(S.follow / .06) * (1 - ease01((S.follow - .86) / .14));
+      if (dustA > 0) {
+        g.save(); g.lineCap = 'round';
+        const span = W * 1.3;
+        for (const m of dust) {
+          const par = m.z * 1.25;
+          const x = ((m.x * span - shift * par) % span + span) % span - W * .15;
+          const y = m.y * H + Math.sin(t * .35 + m.s * 9) * 8 * m.z;
+          const streak = Math.min(W * .08, speed * par * .028);
+          const a = dustA * (.05 + .13 * m.z) * (x < seam ? 1 : .35);
+          const w = .5 + 1.5 * m.z;
+          if (m.z > .9) { g.strokeStyle = `rgba(205,195,180,${a * .35})`; g.lineWidth = w * 3; g.beginPath(); g.moveTo(x, y); g.lineTo(x + streak, y); g.stroke(); }
+          g.strokeStyle = `rgba(205,195,180,${a})`; g.lineWidth = w; g.beginPath(); g.moveTo(x, y); g.lineTo(x + streak + .01, y); g.stroke();
         }
         g.restore();
       }
@@ -367,17 +428,15 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       for (const r of rays) {
         if (S.pull >= 1 && r !== followRay) continue;
         const p = Math.max(0, Math.min(1, (S.lines - r.delay * .6) / .4)); if (!p) continue;
-        const reach = R * r.d * (r === followRay ? 1 : 1 - S.pull);
-        const x0 = cx + Math.cos(r.a) * reach + openingCam.x * W * .020 * openingDepth;
-        const y0 = cy + Math.sin(r.a) * reach + openingCam.y * H * .0125 * openingDepth;
+        const isFollow = r === followRay;
+        const reach = isFollow ? R * mix01(r.d, 1.3, S.pull) : R * r.d * (1 - S.pull);
+        const ra = isFollow ? r.a + (Math.PI - r.a) * ease01(S.pull) : r.a;
+        const x0 = cx + Math.cos(ra) * reach + openingCam.x * W * .020 * openingDepth;
+        const y0 = cy + Math.sin(ra) * reach + openingCam.y * H * .0125 * openingDepth;
         const x1 = x0 + (cx - x0) * p, y1 = y0 + (cy - y0) * p;
         const lg = g.createLinearGradient(x0, y0, cx, cy);
         lg.addColorStop(0, 'rgba(233,228,218,0)'); lg.addColorStop(1, `rgba(233,228,218,${.22 * S.linesA})`);
         g.strokeStyle = lg; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
-      }
-      if (S.follow > 0) {
-        g.strokeStyle = 'rgba(233,228,218,.22)';
-        g.beginPath(); g.moveTo(cx, cy); g.lineTo(followLamp.x, followLamp.y); g.stroke();
       }
     }
 
@@ -417,6 +476,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       g.strokeStyle = 'rgba(233,228,218,.14)'; g.lineWidth = 1; g.beginPath(); g.arc(rx, ry, rr, 0, Math.PI * 2); g.stroke();
       g.strokeStyle = 'rgba(233,228,218,.9)'; g.lineWidth = 1.6; g.beginPath(); g.arc(rx, ry, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * S.ring); g.stroke();
     }
+    if (washT0 >= 0) { const k = (t - washT0) / 1.3; if (k >= 1) washT0 = -1; else drawWash(k); }
     if (S.flare > 0) { g.fillStyle = `rgba(255,248,236,${S.flare * .9})`; g.fillRect(0, 0, W, H); }
     requestAnimationFrame(draw);
   }
@@ -508,7 +568,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
         await say('It leads into Robert Blake’s mind.', 3800);
       })();
       await tween('follow', 1, 8400, k => k * k * (3 - 2 * k));
-      S.bay = 1; S.linesA = 0;
+      S.bay = 1; tween('linesA', 0, 1400);
       await tween('edge', 0, 1000);
       S.follow = 0; $('bay').style.transform = '';
       // the opening is over: its sounds and the title's canvas are let go
@@ -525,7 +585,6 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     await say('Now his great-granddaughter has come for it.', 5600);
     tween('floor', 1, 5200); await wait(2600);
     tween('box', 1, 4200);
-    await say('The stone is still inside.', 5200);
   })();
   // the bay opens round the point: the lamp on its cable from the survey boat's A-frame, just over the water. Observed
   // again, it goes down, and the view follows it under until there is nothing but the point, pinging in the dark
@@ -552,17 +611,23 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     bay.st.zoomTarget = 1;
     while (bay.st.zoom < .96) await wait(50);
     S.ring = 0; $('place').classList.remove('on');
-    // one continuous descent that keeps going while both lines are said, reaching the floor only after them
-    const diveMs = 36000, dive0 = performance.now();
+    // one continuous descent: both lines are said from the moment the lamp hits the water, and it reaches the floor just after them
+    const diveMs = 17000, dive0 = performance.now();
     tweenOn(bay.st, 'dive', 1, diveMs, k => k);
     descentSound();
-    await wait(15000);
+    // as the view itself goes under: a wash of water and a burst of bubbles, and the splash again, softer and shorter
+    (async () => {
+      while (bay.camera.position.y > 0) await wait(20);
+      washT0 = t;
+      if (soundOn && sfx.splash2) { play('splash2'); await wait(1200); await tweenOn(sfx.splash2, 'volume', 0, 400); }
+      release('splash2');
+    })();
+    while (bay.lampY > 0) await wait(30);
     await say('In 1935, Dr Dexter sank the Shining Trapezohedron here.', 5200);
     await say('Now his great-granddaughter has come for it.', 5600);
     const left = Math.max(2500, diveMs - (performance.now() - dive0));
     tweenOn(bay.st, 'floor', 1, left);
-    await wait(Math.max(0, left - 1500));
-    await say('The stone is still inside.', 5200);
+    await wait(left);
   }
 })();
 </script>
