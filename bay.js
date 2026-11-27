@@ -287,7 +287,12 @@ function makeWater(renderer, scene, sky, res) {
         }
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
-        #include <fog_fragment>
+        #ifdef USE_FOG
+          float fogLane = exp(-pow((gl_FragCoord.x / screenSize.x - .705) / .075, 2.0)) * (1.0 - sceneZoom);
+          float waterFog = mix(fogDensity, .0007, fogLane);
+          float fogFactor = 1.0 - exp(-waterFog * waterFog * vFogDepth * vFogDepth);
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
+        #endif
       }`,
   });
   const water = new THREE.Mesh(new THREE.PlaneGeometry(512, 512, 256, 256), mat);
@@ -668,7 +673,8 @@ export function createBay(canvas) {
   addEventListener('pointermove', rackTo);
   addEventListener('pointerdown', rackTo);
   document.addEventListener('mouseleave', () => { pointerActive = false; });
-  const st = { dive: 0, floor: 0, fade: 0, zoom: 0, zoomTarget: 0 };
+  const st = { dive: 0, diveArmed: false, floor: 0, fade: 0, zoom: 0, zoomTarget: 0 };
+  let ledDive = false;
   const tgt = new THREE.Vector3(0, HANG, 0), lampPos = new THREE.Vector3(), viewAim = new THREE.Vector3();
   const cableEnd = new THREE.Vector3(), cableAxis = new THREE.Vector3(), boatCenter = new THREE.Vector3(), reflectionAnchor = new THREE.Vector3();
   let W = 1, H = 1, time = 0;
@@ -686,6 +692,13 @@ export function createBay(canvas) {
 
   const render = dt => {
     time += dt;
+    if (st.diveArmed && st.dive < .03 && st.zoomTarget > .9 && st.zoom < .96) {
+      st.dive = Math.max(st.dive, .03 * smooth(.60, .96, st.zoom));
+      ledDive = true;
+    } else if (!st.diveArmed && ledDive && st.dive < .031) {
+      st.dive = 0;
+      ledDive = false;
+    }
     const d = st.dive, fl = st.floor;
     st.zoom += ((d > 0 ? 1 : st.zoomTarget) - st.zoom) * (1 - Math.exp(-dt * 2.3));
     st.zoom = Math.max(0, Math.min(1, st.zoom));
@@ -697,6 +710,7 @@ export function createBay(canvas) {
     moonDir.set(mix(-.35, -.62, zoom), mix(.035, .42, zoom), mix(-.90, -.66, zoom)).normalize();
     wu.moonDir.value.copy(moonDir);
     wu.sceneZoom.value = zoom;
+    wu.moonColor.value.setRGB(mix(1.0, .88, zoom), mix(.85, .91, zoom), mix(.73, .96, zoom));
     moon.position.copy(moonDir).multiplyScalar(100);
     skyFill.intensity = mix(2.0, 1.15, zoom);
     // The hull samples the same surface at bow, stern, port and starboard.
@@ -722,7 +736,7 @@ export function createBay(canvas) {
     boat.updateMatrixWorld(true);
     const top = sheave.getWorldPosition(new THREE.Vector3());
     // the cable pays out
-    const e = d < .5 ? 4 * d * d * d : 1 - Math.pow(-2 * d + 2, 3) / 2;
+    const e = d;
     const ly = mix(mix(top.y - HANG, SEABED + 9, e), SEABED + 2.2, smooth(0, 1, fl));
     const sway = 1 - smooth(0, .65, d) * .6;
     const swingLength = Math.min(5, Math.max(0, top.y - ly)) * .25;
@@ -808,5 +822,5 @@ export function createBay(canvas) {
   };
   // the lamp on screen, in CSS pixels, for the point and its ping
   const screen = () => { const p = lampPos.clone().project(camera); return { x: (p.x * .5 + .5) * W, y: (-p.y * .5 + .5) * H }; };
-  return { st, look, render, screen, ready, renderer, scene, camera, get focusUv() { return focusAt.clone(); }, get box() { return box; } };
+  return { st, look, render, screen, ready, renderer, scene, camera, get focusUv() { return focusAt.clone(); }, get lampY() { return lampPos.y; }, get box() { return box; } };
 }
