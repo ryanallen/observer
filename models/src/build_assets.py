@@ -104,7 +104,7 @@ def boat_paint_texture(material,kind,base,seed):
       rust=max(rust,run*1.5)
     # Broad, broken corrosion at the stern quarter and along the aft waterline.
     # The coarse field makes a large readable shape; finer noise breaks its edge.
-    for cx,cy,wu,wv in ((.045,.60,.14,.125),(.17,.54,.125,.095),(.31,.49,.10,.075),(.44,.435,.07,.05)):
+    for cx,cy,wu,wv in ((.025,.31,.10,.105),(.105,.35,.145,.10),(.225,.38,.12,.075),(.31,.49,.10,.075),(.44,.435,.07,.05)):
      edge=(b-.5)*.050+(c-.5)*.013
      patch=math.exp(-((u-cx)/wu)**2-((v-cy+edge)/wv)**2)
      patch_rust=max(patch_rust,patch*(.7+.8*max(0,b-.35)))
@@ -242,6 +242,10 @@ def boat():
  white.name='weathered offwhite superstructure';navy_hull.name='survey hull textured blue paint'
  for material,kind,base,seed in ((white,'white',(1.0,.98,.92),11),(roof,'roof',(.48,.51,.55),19),(navy,'hull',(.09,.185,.31),12),(navy_hull,'hull',(.09,.185,.31),12),(red,'red',(.17,.045,.026),16),(orange,'orange',(.75,.245,.048),14),(aframe_orange,'aframe',(.91,.45,.17),23),(steel,'steel',(.31,.33,.31),15)):
   boat_paint_texture(material,kind,base,seed)
+ aframe_cross=aframe_orange.copy();aframe_cross.name='warm chipped orange A frame crossbeam'
+ cross_shader=aframe_cross.node_tree.nodes.get('Principled BSDF')
+ cross_shader.inputs['Emission Color'].default_value=(.40,.12,.025,1)
+ cross_shader.inputs['Emission Strength'].default_value=.55
  boat_normal_texture((white,roof,navy,navy_hull,orange,aframe_orange,steel))
  boat_window_texture()
  # +Y in Blender becomes -Z in the GLB, toward the bow.
@@ -270,6 +274,9 @@ def boat():
  mesh('working deck',v,[tuple(range(len(v)-1,-1,-1))],deck)
  transom=mesh('closed steel transom',[(-.59,-7,-1.1),(.59,-7,-1.1),(.82,-7,.84),(-.82,-7,.84)],[(0,1,2,3)],navy)
  boat_planar_uv(transom)
+ for loop in transom.data.loops:
+  co=transom.data.vertices[loop.vertex_index].co
+  transom.data.uv_layers.active.data[loop.index].uv=((co.x+.82)/1.64*.22,(co.z+1.1)/3.2)
  # Continuous rubbing strake follows the curved sheer, with forward bulwarks.
  for side in (-1,1):
   for a,b in zip(stations[:-1],stations[1:]):
@@ -344,7 +351,7 @@ def boat():
   rod('chromed hydraulic piston',(x,-7.27,2.77),(x,-7.39,3.04),.045,steel,14)
   ball('ram hinge',(x*1.25,-5.25,1.15),(.13,.13,.13),steel,12)
   ball('ram hinge',(x,-7.39,3.04),(.10,.10,.10),steel,12)
- square_beam('horizontal A frame crossbeam',(-.78,-7.74,4.26),(.78,-7.74,4.26),.25,.25,aframe_orange)
+ square_beam('horizontal A frame crossbeam',(-.78,-7.74,4.26),(.78,-7.74,4.26),.25,.25,aframe_cross)
  rod('sheave hanger',(0,-7.74,4.26),(0,-7.74,4.05),.06,steel)
  cyl('sheave cheeks',(0,-7.74,3.96),.23,.27,steel,24,(0,math.pi/2,0))
  cyl('sheave wheel',(0,-7.74,3.96),.16,.30,dark,24,(0,math.pi/2,0))
@@ -816,7 +823,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v56.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v57.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
