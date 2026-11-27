@@ -407,6 +407,14 @@ export function createBay(canvas) {
   flood.castShadow = !mobile; flood.shadow.mapSize.set(1024, 1024); flood.shadow.bias = -.0004; lit.add(flood, flood.target);
   const deck = new THREE.PointLight(0xffc98a, 12, 9, 2); deck.position.set(0, 3.6, 2.4); lit.add(deck);
   const cabin = new THREE.PointLight(0xffce9a, 18, 12, 2); cabin.position.set(-3.0, 4.2, -2.2); lit.add(cabin);
+  const workPools = [-1.15, 1.15].map(x => {
+    const light = new THREE.SpotLight(0xffb874, 18, 5, .72, .8, 2);
+    light.position.set(x, 2.2, 6.55);
+    light.target.position.set(x, 0, 6.55);
+    lit.add(light, light.target); return light;
+  });
+  const roofPool = new THREE.PointLight(0xffc992, 2.5, 3.5, 2);
+  roofPool.position.set(-.98, 3.4, -.8); lit.add(roofPool);
   const sideSpill = new THREE.PointLight(0xc7c6c0, 3, 18, 2); sideSpill.position.set(3.5, 1.6, 0); lit.add(sideSpill);
   const fitBoat = () => {
     // set the boat so its sheave hangs over the lamp's resting place, the origin
@@ -441,6 +449,16 @@ export function createBay(canvas) {
       // the work light comes from the model's own flood lamp, aimed down past the stern at the water under the lamp
       const fl = hull.getObjectByName('flood_lamp'); hull.updateMatrixWorld(true);
       if (fl) { const p = boat.worldToLocal(fl.getWorldPosition(new THREE.Vector3())); flood.position.copy(p).add(new THREE.Vector3(0, .25, -.3)); const t = boat.worldToLocal(s.getWorldPosition(new THREE.Vector3())); flood.target.position.set(t.x, 0, t.z + 1.5); }
+      const workBulbs = [];
+      hull.traverse(o => { if (o.isMesh && /^deck_work_lamp/.test(o.name)) workBulbs.push(o); });
+      workBulbs.sort((a, b) => a.position.x - b.position.x);
+      workBulbs.slice(0, 2).forEach((bulb, i) => {
+        const light = workPools[i];
+        light.position.copy(boat.worldToLocal(bulb.getWorldPosition(new THREE.Vector3()))).y -= .12;
+        light.target.position.copy(light.position).y -= 2.2;
+      });
+      const roofBulb = hull.getObjectByName('roof lamp bright core');
+      if (roofBulb) roofPool.position.copy(boat.worldToLocal(roofBulb.getWorldPosition(new THREE.Vector3()))).y -= .1;
     }),
     loader.loadAsync('models/web/buoy.glb').then(gl => { const b = gl.scene; dress(b); b.position.set(-34, 0, 22); b.userData.bob = 1; scene.add(b); buoy = b; }),
     loader.loadAsync('models/web/box.glb').then(gl => { box = gl.scene; dress(box); box.position.set(.35, SEABED + floorY(.35, .45) - .1, .45); box.rotation.set(.08, .7, -.05); box.scale.setScalar(1.6); box.visible = false; scene.add(box); }),
@@ -540,6 +558,8 @@ export function createBay(canvas) {
     flood.intensity = 12 * lightBoost;
     deck.intensity = 12 * lightBoost;
     cabin.intensity = 18 * lightBoost;
+    for (const pool of workPools) pool.intensity = 18 * lightBoost;
+    roofPool.intensity = 2.5 * lightBoost;
     sideSpill.intensity = 3 * lightBoost;
     const base = boat.userData.base;
     boatCenter.copy(base).multiplyScalar(boatScale).applyAxisAngle(THREE.Object3D.DEFAULT_UP, heading);
