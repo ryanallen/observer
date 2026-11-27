@@ -4,3 +4,5 @@
 /models/src/*.blend
 /models/src/*.blend1
 /models/*.glb
+/.discord-webhook
+/log/
