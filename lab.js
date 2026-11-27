@@ -189,9 +189,8 @@ export function createLab(canvas) {
     if (stone && stone.parent) {
       const ws = stone.parent.getWorldScale(new THREE.Vector3()).y || 1, k = THREE.MathUtils.smoothstep(st.lift, 0, 1);
       stone.position.y = stoneBase + k * (.45 + .008 * Math.sin(time * 1.1)) / ws;   // about the box's own height above the open panels
-      // and a little to the left on screen, into clear air between the lamp and the laser housing, larger so it reads here
+      // and a little to the left on screen, into clear air between the lamp and the laser housing; it keeps its measured size
       stone.position.x = k * -.105 / ws; stone.position.z = k * .075 / ws;
-      stone.scale.setScalar(stoneScale * (1 + .6 * k));
       stone.rotation.y += dt * .45 * k;
     }
     // open as in the approved picture: the panels tipped outward into a crown, not folded flat
