@@ -178,11 +178,13 @@ function makeWater(renderer, scene, sky, res) {
           float crestGlint = .3 + .7 * smoothstep(-.15, .27, wp.y);
           float topLight = .35 + 4.0 * smoothstep(.58, .80, screenUv.y)
                          - 1.0 * smoothstep(.90, 1.0, screenUv.y);
-          col += moonColor * lane * upper * fleck * crestGlint * topLight * .35 * (1.0 - .55 * moonDive);
+          float moonStop = mix(1.0, smoothstep(lampScreen.y - .02, lampScreen.y + .14, screenUv.y),
+                               smoothstep(.20, .60, tallScreen) * (1.0 - moonDive));
+          col += moonColor * lane * upper * fleck * crestGlint * topLight * .35 * moonStop * (1.0 - .55 * moonDive);
           float farFlecks = smoothstep(.18, .70, screenUv.y)
                            * smoothstep(.34 + .12 * topThin + .16 * moonDive,
                                         .58 + .12 * topThin + .15 * moonDive, facets) * (.25 + .75 * moonCrest);
-          col += moonColor * lane * farFlecks * 1.2 * (1.0 - .55 * moonDive);
+          col += moonColor * lane * farFlecks * 1.2 * moonStop * (1.0 - .55 * moonDive);
           float submergedLamp = 1.0 - step(-0.1, lampPos.y);
           float shallowLamp = submergedLamp * exp(-max(-lampPos.y, 0.0) * .16);
           float underTransmission = shallowLamp * exp(-dot(wp.xz - lampPos.xz, wp.xz - lampPos.xz) / 1.2);
