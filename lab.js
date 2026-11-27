@@ -49,7 +49,7 @@ export function createLab(canvas) {
   const texLoader = new THREE.TextureLoader();
   const tex = u => texLoader.loadAsync(u).then(t => { t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; return t; });
   const ready = Promise.all([
-    tex('models/web/lab_closed.webp'), tex('models/web/lab_glow.webp'), tex('models/web/lab_depth.jpg'),
+    tex('models/web/lab_closed_v.webp'), tex('models/web/lab_glow_v.webp'), tex('models/web/lab_depth.jpg'),
     loader.loadAsync('models/web/box_cd.glb'), loader.loadAsync('models/web/stone.glb'),
   ]).then(([closed, glow, depth, gb, gs]) => {
     closed.colorSpace = glow.colorSpace = THREE.SRGBColorSpace;
