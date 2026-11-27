@@ -109,7 +109,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
   // a line on screen, and its recording from The Point at Infinity where it has one; the line stays up while it is spoken
-  const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3?v=2' };
+  const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3?v=2',
+    'I was made to observe minds.': 'audio/voice-i-was-made-to-observe-minds.mp3?v=1' };
   const say = async (text, hold) => {
     if (skipping) return;
     const c = $('cap'); c.textContent = text; c.classList.add('on');
