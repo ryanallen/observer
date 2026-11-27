@@ -106,7 +106,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b40')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b41')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; return bay; }).catch(e => { console.warn('bay', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
@@ -117,8 +117,13 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     const c = $('cap'); c.textContent = text; c.classList.add('on');
     const v = sfx[text];
     if (v && soundOn) { v.currentTime = 0; v.play().catch(() => {}); hold = Math.max(hold, (v.duration || 0) * 1000 + 900); }
-    await wait(hold); c.classList.remove('on'); await wait(1500);
+    speaking++; await wait(hold); speaking--; c.classList.remove('on'); await wait(1500);
+    // each line is said once, so its sound is let go
+    if (v) { release(text); }
   };
+  let speaking = 0;
+  // a sound that is done is stopped and its memory let go
+  const release = k => { const el = sfx[k]; if (!el) return; el.pause(); el.removeAttribute('src'); el.load(); delete sfx[k]; };
 
   // ---- the converging lines: from all round the edge, in to the point ----
   const rays = Array.from({ length: 40 }, (_, i) => {
@@ -169,6 +174,29 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     sfx.follow = load('audio/line-follow.mp3?v=1', .4);
     // a little of the Apprehension Engine while the button trembles; played at once inside the OBSERVE click, so not primed
     sfx.tremble = new Audio('audio/tremble.mp3?v=1'); sfx.tremble.volume = .6;
+    // the descent: the splash as the lamp goes in, then bubbles, then the deep
+    sfx.splash = load('audio/splash.mp3?v=1', .7);
+    sfx.bubbles = load('audio/bubbles-loop.mp3?v=1', 0); sfx.bubbles.loop = true;
+    sfx.deep = load('audio/deep-loop.mp3?v=1', 0); sfx.deep.loop = true;
+  };
+  // the loops under the descent, faded by hand and kept about 6 dB under a voice line while it plays
+  const bed = { bubbles: 0, deep: 0 };
+  const mixBed = () => {
+    const duck = speaking ? .5 : 1;
+    if (sfx.bubbles) sfx.bubbles.volume = Math.min(1, .35 * bed.bubbles * duck);
+    if (sfx.deep) sfx.deep.volume = Math.min(1, .55 * bed.deep * duck);
+    if (sfx.bubbles || sfx.deep) requestAnimationFrame(mixBed);
+  };
+  const descentSound = async () => {
+    if (!soundOn || !sfx.splash) return;
+    while (bay.lampY > 0) await wait(30);
+    play('splash'); setTimeout(() => release('splash'), 5600);
+    await wait(4300);
+    requestAnimationFrame(mixBed);
+    sfx.bubbles.play().catch(() => {}); tweenOn(bed, 'bubbles', 1, 900);
+    await wait(4000);
+    sfx.deep.play().catch(() => {}); tweenOn(bed, 'deep', 1, 4000); await tweenOn(bed, 'bubbles', 0, 4000);
+    release('bubbles');
   };
   const sfx = {};
   const play = k => { if (soundOn && sfx[k]) { sfx[k].currentTime = 0; sfx[k].play().catch(() => {}); } };
@@ -483,6 +511,9 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       S.bay = 1; S.linesA = 0;
       await tween('edge', 0, 1000);
       S.follow = 0; $('bay').style.transform = '';
+      // the opening is over: its sounds and the title's canvas are let go
+      for (const k of ['lines', 'pull', 'follow', 'tremble']) release(k);
+      titleCv.width = titleCv.height = 0; titleW = 0;
       await voices;
       return bayScene();
     }
@@ -521,11 +552,16 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     bay.st.zoomTarget = 1;
     while (bay.st.zoom < .96) await wait(50);
     S.ring = 0; $('place').classList.remove('on');
-    tweenOn(bay.st, 'dive', 1, 24000, k => k);
+    // one continuous descent that keeps going while both lines are said, reaching the floor only after them
+    const diveMs = 36000, dive0 = performance.now();
+    tweenOn(bay.st, 'dive', 1, diveMs, k => k);
+    descentSound();
     await wait(15000);
     await say('In 1935, Dr Dexter sank the Shining Trapezohedron here.', 5200);
     await say('Now his great-granddaughter has come for it.', 5600);
-    tweenOn(bay.st, 'floor', 1, 8000); await wait(5000);
+    const left = Math.max(2500, diveMs - (performance.now() - dive0));
+    tweenOn(bay.st, 'floor', 1, left);
+    await wait(Math.max(0, left - 1500));
     await say('The stone is still inside.', 5200);
   }
 })();

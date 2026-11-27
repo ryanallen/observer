@@ -11,9 +11,9 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
-const SEABED = -44;          // the deepest channel, in metres
+const SEABED = -52;          // the deepest channel, in metres
 const BOX_SCALE = 3.5;       // the box is 220 mm across; drawn at the size the floor shot was framed for
-const BOX_SINK = .4;         // how far its foot sits under the silt, so it is half buried
+const BOX_SINK = .35;        // how far its foot sits under the silt: about a third of it buried
 const HANG = 2.3;            // the cable's length while the lamp waits over the water
 const LAMP_COLOR = new THREE.Color(1.0, 0.78, 0.54);
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -388,7 +388,14 @@ export function createBay(canvas) {
   // the lamp: a warm globe on the cable, and its light
   const lamp = new THREE.Group();
   const cage = new THREE.MeshStandardMaterial({ color: 0x303739, roughness: .62, metalness: .75 });
-  const topCap = new THREE.Mesh(new THREE.CylinderGeometry(.09, .10, .06, 20), cage); topCap.position.y = .20; lamp.add(topCap);
+  // a small cap and a thin wire cage over the globe, sized with it, so it reads as a lamp housing
+  const fitting = new THREE.Group(); lamp.add(fitting);
+  const topCap = new THREE.Mesh(new THREE.CylinderGeometry(.035, .055, .035, 20), cage); topCap.position.y = .212; fitting.add(topCap);
+  for (let i = 0; i < 4; i++) {
+    const wire = new THREE.Mesh(new THREE.TorusGeometry(.209, .0045, 6, 64), cage);   // one meridian, top to bottom
+    wire.rotation.y = i * Math.PI / 4; fitting.add(wire);
+  }
+  const band = new THREE.Mesh(new THREE.TorusGeometry(.209, .006, 6, 64), cage); band.rotation.x = Math.PI / 2; fitting.add(band);
   const globe = new THREE.Mesh(new THREE.SphereGeometry(.205, 32, 24), new THREE.ShaderMaterial({
     uniforms: { core: { value: new THREE.Color().setRGB(2.0, 1.65, 1.15) }, rim: { value: new THREE.Color().setRGB(1.2, .60, .25) } },
     vertexShader: `varying vec3 n, v; void main() { vec4 p = modelViewMatrix * vec4(position, 1.0); n = normalize(normalMatrix * normal); v = normalize(-p.xyz); gl_Position = projectionMatrix * p; }`,
@@ -548,8 +555,9 @@ export function createBay(canvas) {
     }),
     loader.loadAsync('models/web/buoy.glb').then(gl => { const b = gl.scene; dress(b); b.position.set(-34, 0, 22); b.userData.bob = 1; scene.add(b); buoy = b; }),
   ]);
-  // the casket and the seabed are only seen at the bottom of the dive: they load after the surface is up
-  ready.then(() => Promise.allSettled([
+  // the box, the stone and the seabed are only seen at the bottom of the dive: they load once the dive is chosen
+  let floorLoad = null;
+  const loadFloor = () => floorLoad || (floorLoad = Promise.allSettled([
     // the box, closed, tilted and half sunk in the silt, with the stone still inside it
     Promise.all([loader.loadAsync('models/web/box_cd.glb'), loader.loadAsync('models/web/stone.glb')]).then(([gb, gs]) => {
       const b = gb.scene; dress(b);
@@ -558,19 +566,73 @@ export function createBay(canvas) {
       const g = gs.scene; g.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; gemMat = o.material; } });
       (seat || b).add(g);
       gemLight = new THREE.PointLight(0xff2408, 0, 3.2, 2); (glowAt || seat || b).add(gemLight);
-      b.position.set(.35, SEABED + floorY(.35, .45) - BOX_SINK, .45); b.rotation.set(.14, .7, -.1); b.scale.setScalar(BOX_SCALE);
+      b.position.set(.35, SEABED + floorY(.35, .45) - BOX_SINK, .45); b.rotation.set(.04, .7, -.2); b.scale.setScalar(BOX_SCALE);
       b.visible = false; scene.add(b); b.updateMatrixWorld(true);
       (glowAt || seat || b).getWorldPosition(motes.position);
+      scene.add(siltDrift(b));
       box = b;
     }),
     loader.loadAsync('models/web/seabed.glb').then(gl => {
-      dress(gl.scene); gl.scene.traverse(o => { if (o.isMesh) o.material.color.multiplyScalar(.5); });   // 44 m down, the rust has no colour left to speak of
-      gl.scene.position.set(-3.2, 0, 1.2); gl.scene.rotation.y = 2.2; props.add(gl.scene); props.updateMatrixWorld(true);
-      // each prop settles into the silt where it lies
-      for (const o of [...gl.scene.children]) { const w = o.getWorldPosition(new THREE.Vector3()); o.position.y += floorY(w.x, w.z) - .04; }
+      dress(gl.scene); props.add(gl.scene);
+      // the pot, the chain and the stones lie round the box in the lamp's light, each settled into the silt where it lies
+      const bx = .35, bz = .45;
+      for (const o of [...gl.scene.children]) {
+        const r = Math.hypot(o.position.x, o.position.z), a = r > .05 ? Math.atan2(o.position.z, o.position.x) : 0;
+        const d = .8 + r * 1.1;
+        o.position.x = bx + Math.cos(a) * d; o.position.z = bz + Math.sin(a) * d;
+        o.position.y = floorY(o.position.x, o.position.z) - .04;
+      }
     }),
   ]));
   let buoy = null, box = null, gemMat = null, gemLight = null;
+  // a stage that is over gives its memory back: geometry, materials and their textures
+  const disposeTree = root => root.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    for (const m of [].concat(o.material || [])) {
+      for (const k in m) { const v = m[k]; if (v && v.isTexture) v.dispose(); }
+      if (m.uniforms) for (const k in m.uniforms) { const v = m.uniforms[k].value; if (v && v.isTexture) v.dispose(); }
+      m.dispose();
+    }
+  });
+  let surfaceFreed = false;
+  const freeSurface = () => {
+    surfaceFreed = true;
+    for (const k of ['scenery', 'stillMask', 'depthMap', 'shoreMap']) { const t = plate.uniforms[k].value; if (t) t.dispose(); plate.uniforms[k].value = null; }
+    plateReady = false; plate.enabled = false; plate.uniforms.shoreReady.value = 0; focus.uniforms.photoDepth.value = null; focus.uniforms.photoActive.value = 0;
+    for (const o of [water, boat, sky, buoy].filter(Boolean)) { scene.remove(o); disposeTree(o); }
+    waterTarget.dispose();
+  };
+  // silt drifted against the box's sides, deepest where it leans and spilling over its low edge
+  const siltDrift = b => {
+    const c = b.position, up = new THREE.Vector3(0, 1, 0).applyQuaternion(b.quaternion);
+    const lean = Math.atan2(up.z, up.x), wall = .11 * 4 * BOX_SCALE / 3.5, rings = 28, segs = 96;
+    const pos = [], uv = [], col = [], idx = [];
+    for (let i = 0; i <= rings; i++) for (let j = 0; j <= segs; j++) {
+      const r = (wall - .16) + (i / rings) * 1.25, a = j / segs * Math.PI * 2;
+      const x = c.x + Math.cos(a) * r, z = c.z + Math.sin(a) * r;
+      const low = Math.pow(Math.max(0, Math.cos(a - lean)), 2);
+      const height = .13 + .2 * low + .035 * Math.sin(a * 5 + 1.3) + .02 * Math.sin(a * 11);
+      const out = r - wall, reach = .38 + .35 * low;
+      let h = out >= 0 ? height * Math.exp(-Math.pow(out / reach, 2)) : height * (low > .35 ? 1 - Math.pow(-out / .16, 2) * .5 : Math.max(0, 1 + out / .05));
+      h += .008 * Math.sin(x * 9 + z * 4) * Math.exp(-Math.abs(out) * 3);
+      if (i === rings) h = 0;
+      pos.push(x, floorY(x, z) + h - .004, z); uv.push((x + 40) / 80, (40 - z) / 80);
+      // shadowed in the crease against the wall, catching the light along the crest, fading into the plain floor
+      const crease = out < .1 ? .55 + 4.5 * Math.max(0, out - .0) : 1, crest = 1 + .35 * Math.min(1, h / .2) * Math.exp(-Math.pow((out - .12) / .2, 2));
+      const k = Math.min(1.35, crease * crest); col.push(k, k * .97, k * .9);
+    }
+    for (let i = 0; i < rings; i++) for (let j = 0; j < segs; j++) {
+      const p0 = i * (segs + 1) + j, p1 = p0 + 1, p2 = p0 + segs + 1, p3 = p2 + 1;
+      idx.push(p0, p2, p1, p1, p2, p3);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    const mat = floor.material.clone(); mat.vertexColors = true;
+    const m = new THREE.Mesh(geo, mat); m.receiveShadow = true; m.castShadow = true; m.position.y = SEABED;
+    return m;
+  };
   // red-orange motes rising off the stone through the lid, each on its own slow drift
   const motes = (() => {
     const n = 150, seed = new Float32Array(n), pos = new Float32Array(n * 3);
@@ -841,7 +903,9 @@ export function createBay(canvas) {
     const top = sheave.getWorldPosition(new THREE.Vector3());
     // the cable pays out
     const e = d;
-    const ly = mix(mix(top.y - HANG, SEABED + 9, e), SEABED + 2.2, smooth(0, 1, fl));
+    // one descent from the surface to just above the floor: a steady speed that only eases off near the bottom
+    const run = e <= .85 ? e : .85 + (e - .85) - (e - .85) * (e - .85) / .3;
+    const ly = mix(top.y - HANG, SEABED + 2.2, run / .925);
     const sway = 1 - smooth(0, .65, d) * .6;
     const swingLength = Math.min(5, Math.max(0, top.y - ly)) * .25;
     lampPos.set(top.x + (Math.sin(time * .9) * .06 + boat.rotation.z * swingLength) * sway,
@@ -849,7 +913,7 @@ export function createBay(canvas) {
     lamp.position.copy(lampPos);
     lamp.scale.setScalar(1.7);
     const surfaceGlobe = d === 0;
-    globe.scale.setScalar(surfaceGlobe ? 1 : .18 / .205);
+    globe.scale.setScalar(surfaceGlobe ? 1 : .18 / .205); fitting.scale.copy(globe.scale);
     globe.material.uniforms.core.value.setRGB(surfaceGlobe ? 2.0 : 1.6, surfaceGlobe ? 1.65 : .75, surfaceGlobe ? 1.15 : .18);
     globe.material.uniforms.rim.value.setRGB(1.2, surfaceGlobe ? .60 : .32, surfaceGlobe ? .25 : .03);
     cableEnd.set(lampPos.x, lampPos.y + .3, lampPos.z);
@@ -945,6 +1009,9 @@ export function createBay(canvas) {
     scene.fog.color.copy(fogCol); scene.background.copy(fogCol);
     scene.fog.density = cu ? mix(mix(.022, .085, smooth(-2, -26, camera.position.y)), .035, smooth(0, 1, fl)) : .0035;
     sky.visible = !cu;
+    // the floor loads once the dive is chosen; the surface is let go once it is far overhead
+    if ((st.diveArmed || st.dive > 0) && !floorLoad) loadFloor();
+    if (!surfaceFreed && camera.position.y < -25 && d > .5) freeSurface();
     // the boat's lights go out of sight from deep down
     lit.visible = true;
     grain.uniforms.time.value = time % 10; grain.uniforms.dark.value = deep;
