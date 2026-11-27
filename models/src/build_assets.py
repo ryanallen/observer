@@ -14,6 +14,10 @@ def mat(n,c,m=0,r=.6,e=None):
  if e:p.inputs['Emission Color'].default_value=(*e,1);p.inputs['Emission Strength'].default_value=3
  return a
 white=mat('hull warm white',(.69,.73,.72),.15,.5);red=mat('antifouling red',(.13,.024,.018),.1,.86)
+roof=mat('weathered offwhite wheelhouse roof',(.48,.51,.55),.08,.78)
+radar_white=mat('radar white enamel',(.90,.91,.88),.02,.55,(.25,.27,.26))
+radar_white.node_tree.nodes.get('Principled BSDF').inputs['Emission Strength'].default_value=.55
+antenna_metal=mat('pale antenna steel',(.52,.54,.53),.3,.57)
 navy=mat('survey hull midnight blue',(.018,.053,.082),.27,.51)
 navy_hull=mat('survey hull weathered vertex paint',(.018,.053,.082),.27,.56)
 vc=navy_hull.node_tree.nodes.new('ShaderNodeVertexColor');vc.layer_name='PaintVariation'
@@ -67,14 +71,14 @@ def boat_paint_texture(material,kind,base,seed):
  drips=[(rng.random(),rng.uniform(.57,.82),rng.uniform(.12,.38),rng.uniform(.003,.011)) for _ in range(18 if kind=='hull' else 22 if kind=='white' else 10)]
  if kind=='hull':drips += [((y+7)/14,.72,.27,.013) for y in (-5.1,-2.3,.65,3.7)]
  pixels=[];orm=[]
- rough={'hull':.83,'white':.85,'deck':.16,'orange':.79,'steel':.63,'red':.88}[kind]
- metal={'hull':.24,'white':.06,'deck':.21,'orange':.22,'steel':.58,'red':.12}[kind]
+ rough={'hull':.83,'white':.85,'roof':.84,'deck':.16,'orange':.79,'steel':.63,'red':.88}[kind]
+ metal={'hull':.24,'white':.06,'roof':.08,'deck':.21,'orange':.22,'steel':.58,'red':.12}[kind]
  for j in range(size):
   v=j/(size-1)
   for i in range(size):
    u=i/(size-1);a=noise(u,v,grids[0]);b=noise(u,v,grids[1]);c=noise(u,v,grids[2]);grain=(a-.5)*.26+(b-.5)*.19+(c-.5)*.08
    rust=0.0;patch_rust=0.0
-   if kind in ('hull','white','orange','red'):
+   if kind in ('hull','white','roof','orange','red'):
     for x,top,length,width in drips:
      du=min(abs(u-x),1-abs(u-x))
      if top-length<v<top:
@@ -110,6 +114,10 @@ def boat_paint_texture(material,kind,base,seed):
     worn=(.39,.40,.37);oxide=(.34,.17,.075);rust*=1.4
     corner=max(0,.085-min(u,1-u,v,1-v))/.085
     rust=max(rust,corner*(.26+.28*b),max(0,b-.54)*.44)
+   elif kind=='roof':
+    worn=(.22,.25,.29);oxide=(.25,.12,.055);rust*=.75
+    grain+=(a-.5)*.30+(b-.5)*.18
+    wear=max(wear,max(0,b-.38)*1.1)
    elif kind=='deck':
     worn=(.21,.22,.21);oxide=(.23,.15,.09);rust=max(0.0,b-.68)*.28
     path=max(0,1-abs(u-.42)/.12)*(.30+.4*a)
@@ -225,9 +233,9 @@ def window_uv(obj,tile=0):
 
 def boat():
  white.name='weathered offwhite superstructure';navy_hull.name='survey hull textured blue paint'
- for material,kind,base,seed in ((white,'white',(.66,.65,.59),11),(navy,'hull',(.09,.185,.31),12),(navy_hull,'hull',(.09,.185,.31),12),(red,'red',(.17,.045,.026),16),(orange,'orange',(.75,.245,.048),14),(steel,'steel',(.31,.33,.31),15)):
+ for material,kind,base,seed in ((white,'white',(.66,.65,.59),11),(roof,'roof',(.48,.51,.55),19),(navy,'hull',(.09,.185,.31),12),(navy_hull,'hull',(.09,.185,.31),12),(red,'red',(.17,.045,.026),16),(orange,'orange',(.75,.245,.048),14),(steel,'steel',(.31,.33,.31),15)):
   boat_paint_texture(material,kind,base,seed)
- boat_normal_texture((white,navy,navy_hull,orange,steel))
+ boat_normal_texture((white,roof,navy,navy_hull,orange,steel))
  boat_window_texture()
  # +Y in Blender becomes -Z in the GLB, toward the bow.
  coarse=[(-7,.68,.82,.84),(-6.4,1.36,1.53,.91),(-4.8,1.70,1.94,.99),(-2,1.80,2.04,1.06),(1,1.67,1.91,1.14),(3.6,1.40,1.67,1.29),(5.5,.90,1.12,1.53),(6.7,.19,.27,1.76),(6.95,.016,.025,1.86)]
@@ -272,7 +280,9 @@ def boat():
    cube('bulwark scupper',(side*(w*1.004),sy,h+.09),(.017,.24,.085),dark,.01)
  # Wheelhouse, raked forward glazing, and close-fitting roof.
  cube('forward wheelhouse',(0,2.82,1.79),(2.65,3.70,1.45),white,.07)
- cube('wheelhouse roof',(0,2.82,3.02),(2.71,3.76,.18),white,.03)
+ cube('wheelhouse roof',(0,2.82,3.02),(2.71,3.76,.18),roof,.03)
+ for x in (-1.34,1.34):cube('raised roof side lip',(x,2.82,3.17),(.065,3.78,.12),roof,.012)
+ for y in (.94,4.70):cube('raised roof end lip',(0,y,3.17),(2.72,.065,.12),roof,.012)
  for i,x in enumerate((-.83,0,.83)):
   w=cube('raked windscreen',(x,4.705,2.47),(.72,.035,.66),glass,.014)
   window_uv(w,(i+1)%4);w.rotation_euler[0]=math.radians(12)
@@ -288,14 +298,14 @@ def boat():
   w=cube('aft corner window',(x,.949,2.49),(.49,.038,.78),glass,.006);window_uv(w,i+1)
   for edge in (-.255,.255):cube('aft window mullion',(x+edge,.925,2.49),(.019,.018,.82),dark,.003)
   for edge in (-.40,.40):cube('aft window horizontal frame',(x,.925,2.49+edge),(.53,.018,.02),dark,.003)
- stain=mat('cabin rust runoff',(.22,.095,.047),.05,.94)
+ stain=mat('cabin rust runoff',(.15,.052,.022),.05,.94)
  for side in (-1,1):
-  for i,y in enumerate((1.13,1.89,2.75,3.64,4.37)):
-   top=2.08+.08*math.sin(i*2.1);bottom=1.32+.23*math.sin(i*1.7)
-   width=.030+.009*(i%3);verts=[]
+  for i,y in enumerate((1.12,1.86,1.95,2.69,2.78,3.52,3.61,4.35)):
+   top=2.17+.06*math.sin(i*2.1);bottom=1.31+.16*math.sin(i*1.7)
+   width=.052+.013*(i%3);verts=[]
    for j in range(5):
     t=j/4;z=top+(bottom-top)*t;shift=.016*math.sin(i*2.9+j*1.7)
-    w=width*(1-.72*t)*(.78+.22*math.sin(i+j*2.4)**2)
+    w=width*(1-.68*t)*(.78+.22*math.sin(i+j*2.4)**2)
     verts.extend(((side*1.342,y+shift-w,z),(side*1.342,y+shift+w*.55,z)))
    faces=[(2*j,2*j+1,2*j+3,2*j+2) if side<0 else (2*j+2,2*j+3,2*j+1,2*j) for j in range(4)]
    mesh('cabin rust drip',verts,faces,stain)
@@ -304,9 +314,10 @@ def boat():
  cyl('door porthole glass',(0,.870,2.28),.14,.018,glass,24,(math.pi/2,0,0))
  ball('door handle',(.26,.873,1.82),(.035,.02,.03),steel,10)
  # Small warm roof lamp, roof safety rails, and ladder.
- cube('roof lamp housing',(-.95,1.22,3.17),(.12,.12,.09),dark,.012)
- ball('roof lamp warm face',(-.95,1.15,3.17),(.105,.015,.105),bulb_halo,12)
- ball('roof lamp bright core',(-.95,1.13,3.17),(.025,.014,.025),bulb_core,12)
+ cube('aft roof searchlight box',(-.98,1.20,3.34),(.36,.28,.25),steel,.025)
+ cube('searchlight dark rim',(-.98,1.04,3.34),(.25,.03,.19),dark,.012)
+ ball('roof lamp warm face',(-.98,1.01,3.34),(.105,.018,.092),bulb_halo,12)
+ ball('roof lamp bright core',(-.98,.985,3.34),(.031,.014,.031),bulb_core,12)
  for x in (-1.37,1.37):
   for y in (1.13,2.72,4.35):rod('roof rail upright',(x,y,3.10),(x,y,3.51),.021,steel,8)
   rod('roof handrail',(x,1.13,3.51),(x,4.35,3.51),.024,steel,8)
@@ -365,12 +376,14 @@ def boat():
    for z in (.30,.73):
     ball('hull plate fastener',(side*w*1.072,y,z),(.013,.013,.013),steel,8)
  ring('life ring',(-1.50,1.36,2.05),.28,.08,orange,(0,math.pi/2,0))
- cyl('radar dome',(0,3.12,3.55),.05,.86,steel,12)
- ball('radar cover',(0,3.12,4.12),(.27,.27,.29),white)
- for x,y,height in ((-.92,1.28,5.20),(-1.17,2.14,5.46)):
-  rod('radio whip',(x,y,3.11),(x-.06,y,height),.012,steel,8)
-  cyl('radio whip base',(x,y,3.15),.042,.10,steel,10)
- ball('mast_white',(0,3.12,4.30),(.042,.042,.042),navw)
+ cyl('radar dome',(0,3.12,4.08),.055,1.82,antenna_metal,12)
+ cube('radar mast platform',(0,3.12,5.02),(.48,.42,.07),antenna_metal,.015)
+ rod('radar short crossbar',(-.37,3.12,4.91),(.37,3.12,4.91),.022,antenna_metal,8)
+ ball('radar cover',(0,3.12,5.34),(.27,.27,.29),radar_white)
+ for x,y,height in ((-.92,1.28,5.76),(-1.17,2.14,5.96)):
+  rod('radio whip',(x,y,3.18),(x-.06,y,height),.021,antenna_metal,8)
+  cyl('radio whip base',(x,y,3.18),.055,.13,antenna_metal,10)
+ ball('mast_white',(0,3.12,5.66),(.042,.042,.042),navw)
  ball('nav_red',(-1.48,4.46,3.07),(.025,.025,.025),navr)
  ball('nav_green',(1.48,4.46,3.07),(.025,.025,.025),navg)
  for x in (-1.15,1.15):ball('aft work light',(x,.69,2.91),(.055,.032,.04),lamp,10)
@@ -796,7 +809,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v42.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v48.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
