@@ -596,7 +596,7 @@ export function createBay(canvas) {
       (seat || b).add(g);
       gemLight = new THREE.PointLight(0xff2408, 0, 3.2, 2); scene.add(gemLight);
       b.position.set(.35, SEABED + floorY(.35, .45) - BOX_SINK, .45); b.rotation.set(.04, .7, -.2); b.scale.setScalar(BOX_SCALE);
-      b.visible = false; scene.add(b); b.updateMatrixWorld(true);
+      scene.add(b); b.updateMatrixWorld(true);   // there from the start, like the props: it comes up into the light, never on
       (glowAt || seat || b).getWorldPosition(motes.position); gemLight.position.copy(motes.position);
       scene.add(siltDrift(b));
       box = b;
@@ -984,12 +984,11 @@ export function createBay(canvas) {
     }
     buoyLight.intensity = (time % 4 < .5 ? 12 : 0) * (1 - camUnder);
     if (buoy) buoy.traverse(o => { if (o.isMesh && /buoy_light/.test(o.name + (o.material.name || ''))) o.material.emissiveIntensity = time % 4 < .5 ? 10 : .2; });
-    if (box) box.visible = fl > .05;
     // the stone glows faintly through the pierced lid, breathing, and sheds motes
     const gemGlow = smooth(.2, 1, fl) * (.5 + .12 * Math.sin(time * 1.3) + .06 * Math.sin(time * 3.7 + 1));
     if (gemMat) gemMat.emissiveIntensity = gemGlow * 4;
     if (gemLight) gemLight.intensity = gemGlow * 3;
-    motes.visible = !!box && fl > .05;
+    motes.visible = !!box;   // dark until the glow rises with the floor
     motes.material.uniforms.time.value = time; motes.material.uniforms.glow.value = gemGlow;
     motes.material.uniforms.px.value = renderer.getPixelRatio() * renderer.domElement.clientHeight / 900;
 
