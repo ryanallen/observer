@@ -113,17 +113,22 @@ function makeWater(renderer, scene, sky, res) {
                     + 2.5 * sin(px.x * .043 - t * .21)
                     + 7.0 * (vnoise(px * vec2(.012, .019) + vec2(t * .03, 0.0)) - .5) + t * 4.0;
         band = smoothstep(-.15, .62, sin(waveY * .131));
-        vec2 cell = vec2((px.x + 5.0 * sin(waveY * .08)) / 24.0, waveY / 5.8);
+        float rowY = (waveY + 2.2 * (vnoise(px * vec2(.027, .024)) - .5)) / 5.8;
+        float rowSeed = hash2(vec2(floor(rowY), 17.0));
+        vec2 cell = vec2((px.x + 5.0 * sin(waveY * .08) + rowSeed * 31.0
+                       + 3.0 * (vnoise(vec2(px.x * .04, floor(rowY) * .19)) - .5))
+                       / (19.0 + 13.0 * rowSeed), rowY);
         vec2 id = floor(cell), f = fract(cell);
         float seed = hash2(id), seed2 = hash2(id + vec2(19.0, 7.0));
         float seed3 = hash2(id + vec2(3.0, 31.0));
         float start = .03 + .20 * seed;
-        float end = min(.98, start + .36 + .48 * seed2);
+        float end = min(.98, start + .35 + .60 * seed2);
         float xMask = smoothstep(start, start + .045, f.x) * (1.0 - smoothstep(end - .05, end, f.x));
-        float centre = .5 + .21 * (seed3 - .5) + .12 * sin(f.x * 7.0 + seed * 6.28)
+        float centre = .5 + .32 * (seed3 - .5) + .12 * sin(f.x * 7.0 + seed * 6.28)
                             + .045 * sin(f.x * 15.0 + seed2 * 6.28);
         float yMask = 1.0 - smoothstep(.035, .13, abs(f.y - centre));
-        return xMask * yMask * (.55 + .45 * seed2) * smoothstep(.10, .35, seed3);
+        float shine = .32 + 1.15 * hash2(id + vec2(57.0, 11.0));
+        return xMask * yMask * shine * smoothstep(.08, .32, seed3);
       }
       void main() {
         vec3 fine = waveNormal(wp.xz);
@@ -218,7 +223,9 @@ function makeWater(renderer, scene, sky, res) {
           float swellBand = 0.0;
           if (surfaceReflect > .5 && lane > .005) {
             float squiggle = moonSquiggle(gl_FragCoord.xy, time, swellBand);
-            fleck = squiggle * (.22 + 1.28 * swellBand) * (1.1 + .65 * longCrest) + fleck * .35;
+            float topAccent = 1.0 + .8 * smoothstep(.75, .96, screenUv.y) * swellBand;
+            fleck = squiggle * (.22 + 1.28 * swellBand) * topAccent
+                  * (1.1 + .65 * longCrest) + fleck * .35;
           }
           float crestGlint = .3 + .7 * smoothstep(-.15, .27, wp.y);
           float topLight = .35 + 4.0 * smoothstep(.58, .80, screenUv.y)
