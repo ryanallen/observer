@@ -109,7 +109,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
   // a line on screen, and the Observer's recording of it where there is one; the line stays up while it is spoken
-  const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3?v=2' };
+  const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3?v=2', 'Every line, followed far enough, comes to it.': 'audio/voice-every-line-followed-far-enough.mp3?v=1' };
   const say = async (text, hold) => {
     if (skipping) return;
     const c = $('cap'); c.textContent = text; c.classList.add('on');
