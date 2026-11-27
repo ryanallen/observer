@@ -222,13 +222,25 @@ def boat_window_texture():
  source=bpy.data.images.load(path)
  raw=list(source.pixels);pixels=[]
  for i in range(0,len(raw),4):
+  pixel=i//4;u=(pixel%128)/127;v=((pixel//256)%128)/127;tile=(pixel%256)//128+2*((pixel//256)//128)
   light=max(0.0,min(1.0,(raw[i+1]-.08)/.43))
   shade=.34+.66*light**1.55
-  pixels.extend((raw[i]*shade,raw[i+1]*shade,raw[i+2]*shade,1))
+  # Console silhouettes and a chair break up the photographic amber interior.
+  desk=.62 if v<(.17+.025*math.sin(u*12+tile)) else 0.0
+  band=.72 if tile in (1,2,3) and .25<v<.34 else 0.0
+  upright=.56 if abs(u-(.24+.13*(tile%2)))<.035 and .20<v<.76 else 0.0
+  chair=.84 if tile==0 and abs(u-.60)<.13 and .35<v<.76 else 0.0
+  chair_head=.80 if tile==0 and ((u-.60)/.10)**2+((v-.79)/.085)**2<1 else 0.0
+  diagonal=.52 if tile in (1,2) and abs(v-(.24+.58*u))<.043 and .2<u<.82 else 0.0
+  shade*=1-max(desk,band,upright,chair,chair_head,diagonal)
+  lamp=tile==2 and ((u-.75)/.08)**2+((v-.66)/.075)**2<1
+  if lamp:pixels.extend((1.0,.75,.31,1))
+  else:pixels.extend((raw[i]*shade,raw[i+1]*shade,raw[i+2]*shade,1))
  image=bpy.data.images.new('boat window interior with deep shadows',width=256,height=256,alpha=True)
  image.pixels.foreach_set(pixels)
- path=os.path.join(ROOT,'src','boat_window_detail_256.jpg')
- image.filepath_raw=path;image.file_format='JPEG';bpy.context.scene.render.image_settings.quality=78;image.save()
+ image.scale(224,224)
+ path=os.path.join(ROOT,'src','boat_window_detail_224.jpg')
+ image.filepath_raw=path;image.file_format='JPEG';bpy.context.scene.render.image_settings.quality=74;image.save()
  bpy.data.images.remove(image)
  image=bpy.data.images.load(path);image.pack()
  p=glass.node_tree.nodes.get('Principled BSDF')
@@ -324,13 +336,13 @@ def boat():
  for side in (-1,1):
   frame=cube('forward corner window frame',(side*1.24,4.52,2.47),(.62,.052,.78),dark,.012)
   frame.rotation_euler=(math.radians(12),0,side*math.radians(42))
-  o=cube('wrapped raked corner window',(side*1.24,4.485,2.47),(.54,.044,.70),glass,.01)
+  o=cube('wrapped raked corner window',(side*1.24,4.485,2.53),(.54,.044,.58),glass,.01)
   window_uv(o,3 if side<0 else 1);o.rotation_euler=(math.radians(12),0,side*math.radians(42))
  for x in (-1.33,1.33):
   for i,y in enumerate((1.49,2.32,3.15,3.98)):
-   w=cube('side window',(x,y,2.51),(.038,.64,.77),glass,.006);window_uv(w,i)
-   for edge in (-.345,.345):cube('black side window mullion',(x*1.018,y+edge,2.51),(.023,.078,.85),dark,.004)
-   for edge in (-.405,.405):cube('window horizontal frame',(x*1.018,y,2.51+edge),(.023,.72,.052),dark,.004)
+   w=cube('side window',(x,y,2.605),(.038,.64,.58),glass,.006);window_uv(w,i)
+   for edge in (-.345,.345):cube('black side window mullion',(x*1.018,y+edge,2.605),(.023,.078,.67),dark,.004)
+   for edge in (-.315,.315):cube('window horizontal frame',(x*1.018,y,2.605+edge),(.023,.72,.052),dark,.004)
  for i,x in enumerate((-.91,.91)):
   w=cube('aft corner window',(x,.949,2.49),(.49,.038,.78),glass,.006);window_uv(w,i+1)
   for edge in (-.255,.255):cube('aft window mullion',(x+edge,.925,2.49),(.019,.018,.82),dark,.003)
@@ -848,7 +860,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v68.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v72.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
