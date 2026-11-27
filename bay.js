@@ -479,6 +479,9 @@ export function createBay(canvas) {
       if (roofBulb) roofPool.position.copy(boat.worldToLocal(roofBulb.getWorldPosition(new THREE.Vector3()))).y -= .1;
     }),
     loader.loadAsync('models/web/buoy.glb').then(gl => { const b = gl.scene; dress(b); b.position.set(-34, 0, 22); b.userData.bob = 1; scene.add(b); buoy = b; }),
+  ]);
+  // the casket and the seabed are only seen at the bottom of the dive: they load after the surface is up
+  ready.then(() => Promise.allSettled([
     loader.loadAsync('models/web/box.glb').then(gl => { box = gl.scene; dress(box); box.position.set(.35, SEABED + floorY(.35, .45) - .1, .45); box.rotation.set(.08, .7, -.05); box.scale.setScalar(1.6); box.visible = false; scene.add(box); }),
     loader.loadAsync('models/web/seabed.glb').then(gl => {
       dress(gl.scene); gl.scene.traverse(o => { if (o.isMesh) o.material.color.multiplyScalar(.5); });   // 44 m down, the rust has no colour left to speak of
@@ -486,7 +489,7 @@ export function createBay(canvas) {
       // each prop settles into the silt where it lies
       for (const o of [...gl.scene.children]) { const w = o.getWorldPosition(new THREE.Vector3()); o.position.y += floorY(w.x, w.z) - .04; }
     }),
-  ]);
+  ]));
   let buoy = null, box = null;
   const buoyLight = new THREE.PointLight(0xff3020, 0, 14, 2); buoyLight.position.set(-34, 3.4, 22); scene.add(buoyLight);
 
