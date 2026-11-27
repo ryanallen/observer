@@ -132,27 +132,38 @@ function makeWater(renderer, scene, sky, res) {
           bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .025)).rgb - vec3(.10), 0.0) * .24;
           bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .06)).rgb - vec3(.13), 0.0) * .16;
           bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .11)).rgb - vec3(.17), 0.0) * .08;
-          float warmth = dot(bright, vec3(.23, .62, .15));
-          float broken = smoothstep(.35, .67, vnoise(wp.xz * vec2(5.7, 9.5) + vec2(0.0, time * .5)));
+          bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .17)).rgb - vec3(.19), 0.0) * .055;
+          bright += max(texture2D(mirrorSampler, uv + distort + vec2(0.0, .24)).rgb - vec3(.22), 0.0) * .035;
+          float warmth = dot(bright, vec3(.48, .42, .10));
+          warmth /= 1.0 + warmth * 3.0;
+          float broken = smoothstep(.44, .70, vnoise(wp.xz * vec2(5.7, 9.5) + vec2(0.0, time * .5)));
           float nearby = exp(-pow(max(length(wp.xz - lampPos.xz) - 4.0, 0.0) / 18.0, 2.0));
           float shortStreak = smoothstep(.13, .31, screenUv.y);
-          col += vec3(1.0, .57, .28) * warmth * (.22 + .78 * broken) * nearby * shortStreak * 2.8;
+          col += vec3(1.0, .51, .19) * warmth * (.06 + .94 * broken) * nearby * shortStreak * 3.0;
           // Moonlight breaks into irregular soft flecks along moving crests.
-          float upper = smoothstep(.31, .84, screenUv.y);
-          float width = mix(.042, .17, smoothstep(.38, 1.0, screenUv.y));
+          float upper = smoothstep(.21, .80, screenUv.y);
+          float width = mix(.042, .14, smoothstep(.38, 1.0, screenUv.y));
           float centre = .54 + .018 * sin(screenUv.y * 13.0 + time * .16)
                        + .018 * (vnoise(wp.xz * .13) - .5);
           width *= .80 + .40 * vnoise(wp.xz * .08 + vec2(time * .02));
           float lane = exp(-pow((screenUv.x - centre) / width, 2.0));
-          vec2 fp = mat2(.8, -.6, .6, .8) * wp.xz * vec2(7.5, 4.5);
+          vec2 fp = mat2(.8, -.6, .6, .8) * wp.xz * vec2(4.5, 2.8);
           float facets = vnoise(fp + vec2(time * .9, -time * .6))
                        * vnoise(fp * 2.3 - vec2(time * 1.3, time * .4));
           float spec = pow(max(dot(v, reflect(-moonDir, fine)), 0.0), 650.0);
           vec3 moonNear = normalize(vec3(moonDir.x, moonDir.y + .08, moonDir.z));
           spec += pow(max(dot(v, reflect(-moonNear, fine)), 0.0), 650.0) * .38;
+          vec3 moonWideA = normalize(vec3(moonDir.x - .14, moonDir.y + .18, moonDir.z));
+          vec3 moonWideB = normalize(vec3(moonDir.x + .12, moonDir.y - .18, moonDir.z));
+          spec += pow(max(dot(v, reflect(-moonWideA, fine)), 0.0), 650.0) * .34;
+          spec += pow(max(dot(v, reflect(-moonWideB, fine)), 0.0), 650.0) * .34;
           float fleck = spec * smoothstep(.23, .48, facets) * (.30 + .70 * longCrest);
           float crestGlint = .3 + .7 * smoothstep(-.15, .27, wp.y);
-          col += moonColor * lane * upper * fleck * crestGlint * 1.42;
+          float topLight = 1.0 + 1.2 * smoothstep(.75, 1.0, screenUv.y);
+          col += moonColor * lane * upper * fleck * crestGlint * topLight * 1.42;
+          float farFlecks = smoothstep(.76, 1.0, screenUv.y)
+                           * smoothstep(.27, .52, facets) * (.25 + .75 * longCrest);
+          col += moonColor * lane * farFlecks * .30;
           float submergedLamp = 1.0 - step(-0.1, lampPos.y);
           float shallowLamp = submergedLamp * exp(-max(-lampPos.y, 0.0) * .16);
           float underTransmission = shallowLamp * exp(-dot(wp.xz - lampPos.xz, wp.xz - lampPos.xz) / 1.2);
@@ -347,6 +358,7 @@ export function createBay(canvas) {
   flood.castShadow = !mobile; flood.shadow.mapSize.set(1024, 1024); flood.shadow.bias = -.0004; lit.add(flood, flood.target);
   const deck = new THREE.PointLight(0xffc98a, 30, 16, 2); deck.position.set(0, 3.6, 2.4); lit.add(deck);
   const cabin = new THREE.PointLight(0xffce9a, 25, 12, 2); cabin.position.set(-3.0, 4.2, -2.2); lit.add(cabin);
+  const sideSpill = new THREE.PointLight(0xffbd81, 15, 14, 2); sideSpill.position.set(-3.5, 2.8, 0); lit.add(sideSpill);
   const fitBoat = () => {
     // set the boat so its sheave hangs over the lamp's resting place, the origin
     boat.position.set(0, 0, 0); boat.rotation.set(0, 0, 0); boat.updateMatrixWorld(true);
