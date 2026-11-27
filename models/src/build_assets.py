@@ -32,7 +32,7 @@ stripe=mat('dark boot top',(.019,.035,.042),.3,.55);deck=mat('non slip aft deck'
 steel=mat('galvanized steel',(.38,.44,.43),.75,.46);dark=mat('black rubber iron',(.018,.025,.028),.3,.77)
 cooler_enamel=mat('worn white cooler enamel',(.91,.90,.87),.05,.53)
 drum_steel=mat('pale grey cable drum steel',(.54,.56,.58),.60,.40)
-cable_steel=mat('pale wound steel cable',(.64,.65,.66),.62,.39)
+cable_steel=mat('oxidized orange brown wound cable',(.28,.15,.075),.38,.65)
 orange=mat('safety orange',(.85,.16,.023),.25,.48);glass=mat('window_lit',(.40,.27,.14),.1,.20,(1,.57,.25))
 aframe_orange=mat('chipped bright orange A frame',(.91,.45,.17),.25,.65)
 buoyred=mat('channel buoy red',(.48,.025,.018),.22,.59)
@@ -65,8 +65,8 @@ def rod(n,a,b,r,m,seg=10):
 def square_beam(n,a,b,width,depth,m):
  a=Vector(a);b=Vector(b);d=b-a;o=cube(n,(a+b)*.5,(width,depth,d.length),m,.012)
  o.rotation_euler=d.to_track_quat('Z','Y').to_euler();return o
-def ring(n,loc,r,t,m,rot=None,seg=20):
- bpy.ops.mesh.primitive_torus_add(major_segments=seg,minor_segments=6,location=loc,major_radius=r,minor_radius=t)
+def ring(n,loc,r,t,m,rot=None,seg=20,minor=6):
+ bpy.ops.mesh.primitive_torus_add(major_segments=seg,minor_segments=minor,location=loc,major_radius=r,minor_radius=t)
  o=bpy.context.object;o.name=n;o.data.materials.append(m)
  if rot:o.rotation_euler=rot
  return o
@@ -436,10 +436,13 @@ def boat():
  for x in (-.47,.47):
   ball('flood_lamp',(x,-7.79,4.15),(.065,.036,.05),lamp,10)
   cube('floodlamp housing',(x,-7.70,4.15),(.17,.12,.12),dark,.012)
- for x in (-.40,.40):cyl('winch flange',(x,-3.3,1.52),.40,.065,drum_steel,20,(0,math.pi/2,0))
+ for x in (-.48,.48):cyl('winch flange',(x,-3.3,1.55),.49,.065,drum_steel,20,(0,math.pi/2,0))
  cube('white cooler box',(-.98,-3.08,1.33),(.90,.50,.45),cooler_enamel,.035)
- cyl('winch drum',(0,-3.3,1.52),.31,.75,drum_steel,20,(0,math.pi/2,0))
- for i in range(11):ring('wound steel cable',(-.29+i*.058,-3.3,1.52),.323,.013,cable_steel,(0,math.pi/2,0),16)
+ cube('cooler lid shadow line',(-.98,-3.08,1.565),(.93,.53,.022),dark,.008)
+ cube('cooler raised white lid',(-.98,-3.08,1.595),(.97,.56,.05),cooler_enamel,.022)
+ cyl('winch drum',(0,-3.3,1.55),.37,.91,drum_steel,20,(0,math.pi/2,0))
+ for i in range(10):ring('wound steel cable',(-.36+i*.08,-3.3,1.55),.39,.019,cable_steel,(0,math.pi/2,0),12,4)
+ cyl('winch dark spindle',(-.53,-3.3,1.55),.15,.025,dark,16,(0,math.pi/2,0))
  cube('hydraulic winch motor',(.68,-3.3,1.4),(.49,.53,.45),steel,.04)
  cube('sample table',(0,-5.52,1.20),(1.20,.48,.10),steel,.025)
  # Compact hydraulic crane, hose reel, line coils and strapped equipment crates.
@@ -455,9 +458,13 @@ def boat():
  for x,y in ((-.94,-3.8),(.80,-1.90)):
   cube('worn equipment case',(x,y,1.32),(.46,.55,.37),crate,.018)
   for j in (-.17,.17):rod('equipment case strap',(x+j,y-.26,1.48),(x+j,y+.26,1.48),.012,dark,8)
- for x in (-.24,.24):cyl('hose reel flange',(x,-2.15,1.43),.24,.04,drum_steel,18,(0,math.pi/2,0))
- cyl('hose reel core',(0,-2.15,1.43),.16,.48,drum_steel,16,(0,math.pi/2,0))
- for i in range(6):ring('hose winding',(-.17+i*.065,-2.15,1.43),.18,.018,cable_steel,(0,math.pi/2,0),18)
+ for x in (-.38,.38):cyl('hose reel flange',(x,-2.13,1.50),.44,.055,drum_steel,20,(0,math.pi/2,0))
+ cyl('hose reel core',(0,-2.13,1.50),.32,.72,drum_steel,18,(0,math.pi/2,0))
+ for i in range(8):ring('hose winding',(-.29+i*.083,-2.13,1.50),.345,.019,cable_steel,(0,math.pi/2,0),12,4)
+ cyl('hose reel dark spindle',(-.43,-2.13,1.50),.13,.025,dark,16,(0,math.pi/2,0))
+ cube('rail side white work box',(-1.12,-5.18,1.34),(.86,.48,.42),cooler_enamel,.023)
+ cube('rail box lid shadow',(-1.12,-5.18,1.558),(.88,.50,.016),dark,.005)
+ cube('rail box white lid',(-1.12,-5.18,1.587),(.91,.53,.05),cooler_enamel,.018)
  # Small nonskid weld beads and raised plate fasteners, visible in grazing light.
  for y in [(-5.8+i*.30) for i in range(20)]:
   h=min(stations,key=lambda q:abs(q[0]-y))[3]
@@ -900,7 +907,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v82.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v84.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
