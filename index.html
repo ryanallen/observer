@@ -97,6 +97,9 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- state the drawing reads ----
   const S = {
     dark: 0,          // the dark shot out from the stone on a heartbeat, 0 to 1 (all black)
+    bench: 0,         // the bench's indicator lights coming on one after another, 0 to 1
+    monitor: 0,       // the monitor flickering on, 0 to 1
+    firing: false,    // the laser firing single photons at the stone
     clear: 0,         // the ring clearing it on a later heartbeat, 0 to 1
     lab: 0,           // the lab is showing
     pt: 0,            // the point's visibility
@@ -126,10 +129,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b57')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b58')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
-  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b57')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b58')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
@@ -141,7 +144,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
   // a line on screen, and the Observer's recording of it where there is one; the line stays up while it is spoken
-  const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3?v=2', 'Every line, followed far enough, comes to it.': 'audio/voice-every-line-followed-far-enough.mp3?v=1', 'Follow one line back.': 'audio/voice-follow-one-line-back.mp3?v=1', 'In 1935, Dr Dexter sank the Shining Trapezohedron here.': 'audio/voice-in-1935-dr-dexter-sank.mp3?v=1', 'Now his great-granddaughter has come for it.': 'audio/voice-now-his-great-granddaughter.mp3?v=1' };
+  const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3?v=2', 'Every line, followed far enough, comes to it.': 'audio/voice-every-line-followed-far-enough.mp3?v=1', 'Follow one line back.': 'audio/voice-follow-one-line-back.mp3?v=1', 'In 1935, Dr Dexter sank the Shining Trapezohedron here.': 'audio/voice-in-1935-dr-dexter-sank.mp3?v=1', 'Now his great-granddaughter has come for it.': 'audio/voice-now-his-great-granddaughter.mp3?v=1', 'Ninety years in the dark.': 'audio/voice-ninety-years-in-the-dark.mp3?v=1', 'In the dark, it wakes.': 'audio/voice-in-the-dark-it-wakes.mp3?v=1' };
   const say = async (text, hold) => {
     if (skipping) return;
     const c = $('cap'); c.textContent = text; c.classList.add('on');
@@ -278,6 +281,15 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     else for (const k of ['follow', 'bubbles', 'deep']) if (live[k] && live[k].el) live[k].el.volume = Math.min(1, live[k].level * (on ? .5 : 1));
   };
   const followVolume = quiet => fade('follow', quiet ? .25 : .4, 300);
+  // the desk lamp's switch: a short, dry click
+  const switchClick = () => {
+    if (!ac || !soundOn) return;
+    const n = Math.round(ac.sampleRate * .03), b = ac.createBuffer(1, n, ac.sampleRate), d = b.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ac.sampleRate * .0025));
+    const src = ac.createBufferSource(), f = ac.createBiquadFilter(), gn = ac.createGain();
+    f.type = 'bandpass'; f.frequency.value = 2400; f.Q.value = 1.2; gn.gain.value = .5; src.buffer = b;
+    src.connect(f).connect(gn).connect(bus.sfx); src.start();
+  };
   window.observerSound = () => ({ ac, bus, live: Object.keys(live), decoded: Object.keys(buf), elements: Object.keys(elems) });
   const descentSound = async () => {
     if (!soundOn) return;
@@ -334,6 +346,82 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     g.fillStyle = gr; g.fillRect(0, 0, W, H);
   };
   const cx0 = () => P.x, cy0 = () => P.y;
+  // ---- P.3: the machine waking. Indicator lights on the photon bench's devices (in the photograph's pixels) blink on one
+  // after another along its length, the monitor flickers on, then the laser fires single photons at the stone ----
+  const BENCH = [[902, 352, 'a'], [961, 366, 'a'], [937, 418, 'g'], [1010, 388, 'g'], [1000, 428, 'a'], [1068, 394, 'g'],
+    [1095, 448, 'a'], [1121, 448, 'g'], [1134, 356, 'a'], [1162, 382, 'g'], [1171, 469, 'a'], [1214, 366, 'g']];
+  const MONITOR = [[1277, 322], [1372, 330], [1367, 400], [1275, 392]], LASER = [988, 357];   // the aperture, at the laser housing's end
+  const photons = [];
+  let nextPhoton = 0;
+  // the same lights cast on the room, handed to the lab's plate each frame
+  const castLights = () => {
+    const L = [];
+    BENCH.forEach(([x, y, c], i) => {
+      const on = ease01((S.bench * BENCH.length - i) * 2.5); if (!on) return;
+      const flick = .82 + .18 * Math.sin(t * (3 + i) + i * 1.7), col = c === 'g' ? [.35, 1, .5] : [1, .62, .28];
+      L.push([x, y + 6, 46, ...col, .55 * on * flick]);          // the pool on the bench top and the wall behind it
+    });
+    if (S.monitor > 0) {
+      const f = S.monitor < 1 ? (Math.sin(t * 61) > .2 ? 1 : .25) * S.monitor : 1;
+      L.push([1322, 420, 150, .35, .75, .65, .32 * f]);           // the monitor's cool glow on the bench and floor
+    }
+    for (const ph of photons) {                                   // each spark lights what it passes
+      if (!ph.at) continue; const q = lab.screenToPlate(ph.at.x, ph.at.y);
+      L.push([q.x, q.y, 34, 1, .45, .3, .9]);
+    }
+    if (lab.st.flash > .02) { const q = lab.screenToPlate(...Object.values(lab.stoneScreen())); L.push([q.x, q.y + 70, 120, 1, .4, .25, .7 * lab.st.flash]); }
+    lab.setLights(L);
+  };
+  const drawMachine = () => {
+    if (lab && S.lab > 0) castLights();
+    if (!lab || (S.bench <= 0 && !(lab.st.lift > 0))) return;
+    g.save(); g.globalCompositeOperation = 'lighter';
+    BENCH.forEach(([x, y, c], i) => {
+      const on = ease01((S.bench * BENCH.length - i) * 2.5); if (!on) return;
+      const flick = .82 + .18 * Math.sin(t * (3 + i) + i * 1.7), p = lab.plateToScreen(x, y), col = c === 'g' ? '120,255,150' : '255,190,90';
+      const gr = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, 9);
+      gr.addColorStop(0, `rgba(${col},${.9 * on * flick})`); gr.addColorStop(.25, `rgba(${col},${.35 * on * flick})`); gr.addColorStop(1, `rgba(${col},0)`);
+      g.fillStyle = gr; g.beginPath(); g.arc(p.x, p.y, 9, 0, 7); g.fill();
+    });
+    // the monitor: a dim screen glow that flickers on, a few dots on it
+    if (S.monitor > 0) {
+      const f = S.monitor < 1 ? (Math.sin(t * 61) > .2 ? 1 : .25) * S.monitor : 1;
+      const q = MONITOR.map(([x, y]) => lab.plateToScreen(x, y));
+      g.fillStyle = `rgba(90,170,140,${.13 * f})`; g.beginPath(); q.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)); g.closePath(); g.fill();
+      g.fillStyle = `rgba(200,255,230,${.55 * f})`;
+      for (const [a, b] of [[.22, .3], [.61, .48], [.4, .7], [.78, .25], [.3, .55]]) {
+        const top = { x: q[0].x + (q[1].x - q[0].x) * a, y: q[0].y + (q[1].y - q[0].y) * a }, bot = { x: q[3].x + (q[2].x - q[3].x) * a, y: q[3].y + (q[2].y - q[3].y) * a };
+        g.beginPath(); g.arc(top.x + (bot.x - top.x) * b, top.y + (bot.y - top.y) * b, 1.2, 0, 7); g.fill();
+      }
+    }
+    // the stone's red core, glowing through its facets: deep red-orange, never white; it swells on the beat and at a strike
+    if (lab.st.lift > 0) {
+      const p = lab.stoneScreen(), k = ease01(lab.st.lift), pulse = lab.st.pulse || 0, fl = lab.st.flash || 0;
+      const r = (9 + 3 * pulse + 5 * fl) * k, gr = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+      gr.addColorStop(0, `rgba(255,${Math.round(90 + 50 * fl)},40,${(.8 + .2 * fl) * k})`); gr.addColorStop(.45, `rgba(230,35,12,${.55 * k})`); gr.addColorStop(1, 'rgba(200,20,8,0)');
+      g.fillStyle = gr; g.beginPath(); g.arc(p.x, p.y, r, 0, 7); g.fill();
+    }
+    // the photons: one bright spark at a time with a short trail, from the laser's aperture to the stone, 3 to 6 a second
+    if (S.firing) {
+      if (t >= nextPhoton) { photons.push({ t0: t }); nextPhoton = t + 1 / (3 + Math.random() * 3); }
+      const from = lab.plateToScreen(...LASER), to = lab.stoneScreen(), fly = .28;
+      for (let i = photons.length - 1; i >= 0; i--) {
+        const k = (t - photons[i].t0) / fly;
+        if (k >= 1) { photons.splice(i, 1); lab.st.flash = 1; continue; }
+        const at = j => ({ x: from.x + (to.x - from.x) * j, y: from.y + (to.y - from.y) * j });
+        const h = at(k); photons[i].at = h;
+        const len = Math.hypot(to.x - from.x, to.y - from.y) || 1, back = Math.min(36, k * len);
+        const tail = { x: h.x - (to.x - from.x) / len * back, y: h.y - (to.y - from.y) / len * back };
+        const lg = g.createLinearGradient(tail.x, tail.y, h.x, h.y);
+        lg.addColorStop(0, 'rgba(255,150,90,0)'); lg.addColorStop(1, 'rgba(255,225,190,.95)');
+        g.strokeStyle = lg; g.lineWidth = 2.2; g.lineCap = 'round'; g.beginPath(); g.moveTo(tail.x, tail.y); g.lineTo(h.x, h.y); g.stroke();
+        const gr = g.createRadialGradient(h.x, h.y, 0, h.x, h.y, 9);
+        gr.addColorStop(0, 'rgba(255,250,240,1)'); gr.addColorStop(.22, 'rgba(255,235,210,1)'); gr.addColorStop(.45, 'rgba(255,160,100,.45)'); gr.addColorStop(1, 'rgba(255,110,60,0)');
+        g.fillStyle = gr; g.beginPath(); g.arc(h.x, h.y, 9, 0, 7); g.fill();
+      }
+    }
+    g.restore();
+  };
   // a promise kept on the next heartbeat
   const beatWaiters = [];
   const onBeat = () => new Promise(r => beatWaiters.push(r));
@@ -383,7 +471,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     const eyeDy = openingCam.y * H * .0025 * openingDepth;
     if (lab && S.lab > 0) {
       lab.render(dt);
-      const p = lab.screen(); cx = p.x; cy = p.y;
+      const p = lab.st.lift > 0 ? lab.stoneScreen() : lab.screen(); cx = p.x; cy = p.y;   // the ping rides with the stone as it lifts
       g.clearRect(0, 0, W, H);
     } else if (bay && S.follow > 0) {
       bay.st.fade = 1; bay.render(dt);
@@ -589,7 +677,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
         g.strokeStyle = `rgba(255,246,228,${ea})`; eyePath(cx + eyeDx, cy + eyeDy, 4 + A * eo, 2 + B * eo); g.stroke();
       }
       // the heartbeat, on each ping
-      const n = Math.floor(t / 3.33); if (n !== lastBeat) { lastBeat = n; if (S.pt > .5) beat(); beatWaiters.splice(0).forEach(f => f()); }
+      const n = Math.floor(t / 3.33); if (n !== lastBeat) { lastBeat = n; if (S.pt > .5) beat(); if (lab) lab.st.pulse = 1; beatWaiters.splice(0).forEach(f => f()); }
     }
     // the hold ring
     // the ring fills round the cursor while it rests on the point
@@ -598,6 +686,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       g.strokeStyle = 'rgba(233,228,218,.14)'; g.lineWidth = 1; g.beginPath(); g.arc(rx, ry, rr, 0, Math.PI * 2); g.stroke();
       g.strokeStyle = 'rgba(233,228,218,.9)'; g.lineWidth = 1.6; g.beginPath(); g.arc(rx, ry, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * S.ring); g.stroke();
     }
+    drawMachine();
     if (S.dark > 0) drawDark();
     if (washT0 >= 0) { const k = (t - washT0) / 1.3; if (k >= 1) washT0 = -1; else drawWash(k); }
     if (S.flare > 0) { g.fillStyle = `rgba(255,248,236,${S.flare * .9})`; g.fillRect(0, 0, W, H); }
@@ -803,13 +892,27 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     lab.render(0); await wait(50);
     $('lab').style.opacity = 1; S.lab = 1; $('skip').style.display = 'none';
     await onBeat();
+    // "Ninety years in the dark." as the room clears in, the desk lamp still on
+    say('Ninety years in the dark.', 2800);
     await tween('clear', 1, 900, k => 1 - Math.pow(1 - k, 2));
     S.dark = 0; S.clear = 0;
     let seen = false;
     (async () => { await wait(7000); while (!seen) { tip('observe', howToNow(), 4500); await wait(16000); } })();
     await waitHold(); seen = true; hideTip('observe');
     S.ring = 0;
+    // the desk lamp clicks off; a beat of darkness; then the box opens as the line is said
+    switchClick();
+    await tweenOn(lab.st, 'lamp', 1, 220, k => k);
+    await onBeat();
+    say('In the dark, it wakes.', 2600);
     await tweenOn(lab.st, 'open', 1, 2800);
+    // the stone lifts out and hangs above the box, turning; the ping goes with it
+    await tweenOn(lab.st, 'lift', 1, 2600);
+    // the machine wakes by itself, then fires at the stone
+    await wait(700);
+    tween('monitor', 1, 1400, k => k);
+    await tween('bench', 1, 2400, k => k);
+    S.firing = true;
   }
 })();
 </script>

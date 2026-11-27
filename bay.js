@@ -594,6 +594,8 @@ export function createBay(canvas) {
       const seat = b.getObjectByName('gem_seat'), glowAt = b.getObjectByName('gem_glow');
       const g = gs.scene; g.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; gemMat = o.material; } });
       (seat || b).add(g);
+      // the box is modelled in millimetres under its root: give the stone (modelled in metres) its real size inside it
+      b.updateMatrixWorld(true); { const sw = (seat || b).getWorldScale(new THREE.Vector3()).y, rw = b.getWorldScale(new THREE.Vector3()).y; g.scale.setScalar(rw / sw); }
       gemLight = new THREE.PointLight(0xff2408, 0, 3.2, 2); scene.add(gemLight);
       b.position.set(.35, SEABED + floorY(.35, .45) - BOX_SINK, .45); b.rotation.set(.04, .7, -.2); b.scale.setScalar(BOX_SCALE);
       scene.add(b); b.updateMatrixWorld(true);   // there from the start, like the props: it comes up into the light, never on
