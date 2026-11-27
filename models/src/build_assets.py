@@ -236,19 +236,19 @@ def boat_window_texture():
  for i in range(0,len(raw),4):
   pixel=i//4;u=(pixel%128)/127;v=((pixel//256)%128)/127;tile=(pixel%256)//128+2*((pixel//256)//128)
   light=max(0.0,min(1.0,(raw[i+1]-.08)/.43))
-  shade=.34+.66*light**1.55
+  shade=.74+.26*light**1.2
   # Console silhouettes and a chair break up the photographic amber interior.
-  desk=.62 if v<(.17+.025*math.sin(u*12+tile)) else 0.0
-  band=.87 if tile in (1,2,3) and .24<v<(.35+.012*math.sin(u*13)) else 0.0
-  upright=.56 if abs(u-(.24+.13*(tile%2)))<.035 and .20<v<.76 else 0.0
-  chair=.95 if tile==3 and abs(u-.57)<.13 and .38<v<.71 else 0.0
-  shoulders=.92 if tile==3 and abs(u-.57)<.23 and .31<v<.48 else 0.0
-  chair_head=.97 if tile==3 and ((u-.57)/.12)**2+((v-.74)/.10)**2<1 else 0.0
-  diagonal=.52 if tile in (1,2) and abs(v-(.24+.58*u))<.043 and .2<u<.82 else 0.0
+  desk=.28 if v<(.17+.025*math.sin(u*12+tile)) else 0.0
+  band=.35 if tile in (1,2,3) and .24<v<(.35+.012*math.sin(u*13)) else 0.0
+  upright=.24 if abs(u-(.24+.13*(tile%2)))<.025 and .20<v<.76 else 0.0
+  chair=.42 if tile==3 and abs(u-.57)<.13 and .38<v<.71 else 0.0
+  shoulders=.42 if tile==3 and abs(u-.57)<.23 and .31<v<.48 else 0.0
+  chair_head=.43 if tile==3 and ((u-.57)/.12)**2+((v-.74)/.10)**2<1 else 0.0
+  diagonal=.24 if tile in (1,2) and abs(v-(.24+.58*u))<.032 and .2<u<.82 else 0.0
   shade*=1-max(desk,band,upright,chair,shoulders,chair_head,diagonal)
   lamp=tile==2 and ((u-.75)/.08)**2+((v-.66)/.075)**2<1
   if lamp:pixels.extend((1.0,.75,.31,1))
-  else:pixels.extend((raw[i]*shade,raw[i+1]*shade,raw[i+2]*shade,1))
+  else:pixels.extend(((.72*raw[i]+.28*.91)*shade,(.72*raw[i+1]+.28*.63)*shade,(.72*raw[i+2]+.28*.27)*shade,1))
  image=bpy.data.images.new('boat window interior with deep shadows',width=256,height=256,alpha=True)
  image.pixels.foreach_set(pixels)
  image.scale(224,224)
@@ -260,7 +260,7 @@ def boat_window_texture():
  tex=glass.node_tree.nodes.new('ShaderNodeTexImage');tex.image=image
  glass.node_tree.links.new(tex.outputs['Color'],p.inputs['Base Color'])
  glass.node_tree.links.new(tex.outputs['Color'],p.inputs['Emission Color'])
- p.inputs['Emission Strength'].default_value=1.3
+ p.inputs['Emission Strength'].default_value=1.65
 
 def window_uv(obj,tile=0):
  """Give each pane a distinct lit interior from the four-pane atlas."""
@@ -351,7 +351,7 @@ def boat():
   cube('pale wheelhouse end fascia',(0,y,3.04),(2.72,.055,.15),roof_edge,.01)
   cube('raised roof end lip',(0,y,3.17),(2.72,.065,.12),roof_edge,.012)
  for i,x in enumerate((-.83,0,.83)):
-  w=cube('raked windscreen',(x,4.705,2.47),(.72,.035,.66),glass,.014)
+  w=cube('raked windscreen',(x,4.705,2.49),(.78,.035,.72),glass,.008)
   window_uv(w,(i+1)%4);w.rotation_euler[0]=math.radians(12)
  for side in (-1,1):
   frame=cube('forward corner window frame',(side*1.24,4.52,2.47),(.62,.052,.78),dark,.012)
@@ -361,15 +361,15 @@ def boat():
  side_window_y=(1.94,2.62,3.30,3.98)
  for x in (-1.33,1.33):
   for i,y in enumerate(side_window_y):
-   w=cube('side window',(x,y,2.605),(.038,.53,.58),glass,.006);window_uv(w,i)
-   for edge in (-.285,.285):cube('black side window mullion',(x*1.018,y+edge,2.605),(.023,.078,.67),dark,.004)
-   for edge in (-.315,.315):cube('window horizontal frame',(x*1.018,y,2.605+edge),(.023,.61,.052),dark,.004)
+   w=cube('side window',(x,y,2.605),(.038,.60,.67),glass,.006);window_uv(w,i)
+   for edge in (-.315,.315):cube('black side window mullion',(x*1.018,y+edge,2.605),(.023,.036,.70),dark,.003)
+   for edge in (-.35,.35):cube('window horizontal frame',(x*1.018,y,2.605+edge),(.023,.64,.032),dark,.003)
  for side in (-1,1):
   x=side*1.36;y=1.27
   cube('aft side door dark frame',(x,y,1.96),(.045,.62,1.30),dark,.012)
   cube('aft side door worn panel',(side*1.39,y,1.96),(.034,.53,1.22),white,.010)
-  cube('aft side door window frame',(side*1.414,y,2.29),(.025,.39,.40),dark,.006)
-  door_side_glass=cube('aft side door lit window',(side*1.438,y,2.29),(.025,.33,.34),glass,.005)
+  cube('aft side door window frame',(side*1.414,y,2.29),(.025,.49,.52),dark,.006)
+  door_side_glass=cube('aft side door lit window',(side*1.438,y,2.29),(.025,.43,.46),glass,.005)
   window_uv(door_side_glass,2)
  ball('cabin aft corner lamp housing',(-1.43,1.03,2.87),(.095,.075,.095),dark,10)
  ball('cabin aft corner warm bulb',(-1.48,1.03,2.87),(.060,.047,.060),bulb_halo,12)
@@ -386,11 +386,11 @@ def boat():
   for k,window_y in enumerate(side_window_y):
    for n in range((3,5,2,4)[k]):
     y=window_y+rng.uniform(-.28,.28)
-    top=2.26+rng.uniform(-.035,.09)
+    top=2.22+rng.uniform(-.035,.07)
     bottom=rng.uniform(1.06,1.92)
     width=rng.uniform(.011,.032) if n else rng.uniform(.038,.068)
     anchors.append((y,top,bottom,width))
-  anchors.append((window_y+.32,2.54,rng.uniform(1.19,1.75),rng.uniform(.014,.030)))
+  anchors.append((window_y+.32,2.24,rng.uniform(1.19,1.75),rng.uniform(.014,.030)))
   for layer,material,spread in (('faded',rust_edge,1.7),('dark',stain,1.0)):
    verts=[];faces=[]
    for i,(y,top,bottom,width) in enumerate(anchors):
@@ -983,7 +983,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v89.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v90.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
