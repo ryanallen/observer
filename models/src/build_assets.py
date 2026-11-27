@@ -67,7 +67,7 @@ def ring(n,loc,r,t,m,rot=None,seg=20):
 
 def boat_paint_texture(material,kind,base,seed):
  """Bake compact weathered paint into a JPEG the glTF exporter can embed."""
- size={'white':256,'roof':256,'hull':320,'orange':192,'aframe':192,'red':192,'steel':192}[kind];rng=random.Random(seed)
+ size={'white':224,'roof':192,'hull':320,'orange':192,'aframe':192,'red':192,'steel':192}[kind];rng=random.Random(seed)
  grids=[]
  for n in (12,48,192):grids.append((n,[rng.random() for _ in range(n*n)]))
  def noise(u,v,grid):
@@ -441,7 +441,7 @@ def boat():
   for y,ch,w,h in stations[:-1]:
    for z in (.30,.73):
     ball('hull plate fastener',(side*w*1.072,y,z),(.013,.013,.013),steel,8)
- ring('life ring',(.72,.85,1.72),.28,.08,orange,(math.pi/2,0,0))
+ ring('life ring',(-1.49,1.66,1.77),.28,.08,orange,(0,math.pi/2,0))
  cyl('radar dome',(0,3.12,4.08),.055,1.82,antenna_metal,12)
  cube('radar mast platform',(0,3.12,5.02),(.48,.42,.07),antenna_metal,.015)
  rod('radar short crossbar',(-.37,3.12,4.91),(.37,3.12,4.91),.022,antenna_metal,8)
@@ -875,7 +875,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v75.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v76.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
