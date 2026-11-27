@@ -863,7 +863,7 @@ export function createBay(canvas) {
   addEventListener('pointerdown', rackTo);
   addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') cameraPointerActive = false; });
   document.addEventListener('mouseleave', e => { cameraPointerActive = false; if (e.pointerType !== 'touch') pointerActive = false; });
-  const st = { dive: 0, diveArmed: false, floor: 0, fade: 0, zoom: 0, zoomTarget: 0 };
+  const st = { dive: 0, diveArmed: false, floor: 0, stone: 0, fade: 0, zoom: 0, zoomTarget: 0 };
   let ledDive = false;
   const tgt = new THREE.Vector3(0, HANG, 0), lampPos = new THREE.Vector3(), viewAim = new THREE.Vector3();
   const cableEnd = new THREE.Vector3(), cableAxis = new THREE.Vector3(), boatCenter = new THREE.Vector3(), reflectionAnchor = new THREE.Vector3();
@@ -1006,7 +1006,8 @@ export function createBay(canvas) {
     const pitch = mix(mix(platePitch, .54, zoom), .3, smooth(.3, .6, d)) + mix(0, .55, smooth(.2, 1, fl));
     const dist = mix(mix(135, 92, zoom), 26, smooth(0, .55, d)) * mix(1, .3, smooth(0, 1, fl));
     camera.fov = 2 * Math.atan(Math.tan(fv / 2) * Math.max(1, 1.2 / camera.aspect)) * 180 / Math.PI; camera.updateProjectionMatrix();
-    const aim = box && fl > 0 ? lampPos.clone().lerp(box.position, .55 * smooth(0, 1, fl)) : lampPos;
+    // at the floor the view settles on the lamp and the box, then moves to put the stone at the centre
+    const aim = box && fl > 0 ? lampPos.clone().lerp(box.position, .55 * smooth(0, 1, fl)).lerp(motes.position, smooth(0, 1, st.stone)) : lampPos;
     if (surface > .999) tgt.copy(lampPos);
     else tgt.lerp(aim, Math.min(1, dt * (d > 0 ? 6 : 2)));
     camera.position.set(tgt.x + Math.cos(pitch) * Math.sin(yaw) * dist, tgt.y + Math.sin(pitch) * dist, tgt.z + Math.cos(pitch) * Math.cos(yaw) * dist);
@@ -1045,6 +1046,7 @@ export function createBay(canvas) {
   };
   // the lamp on screen, in CSS pixels, for the point and its ping
   const screen = () => { const p = lampPos.clone().project(camera); return { x: (p.x * .5 + .5) * W, y: (-p.y * .5 + .5) * H }; };
+  const stoneScreen = () => { const p = motes.position.clone().project(camera); return { x: (p.x * .5 + .5) * W, y: (-p.y * .5 + .5) * H }; };
   // compile every shader and draw one frame while the bay is still hidden, so its first visible frame doesn't stall
   // one material at a time in idle moments, the scene's and the passes' own, then a single first draw
   const idle = () => new Promise(r => window.requestIdleCallback ? requestIdleCallback(() => r(), { timeout: 400 }) : setTimeout(r, 60));
@@ -1078,5 +1080,5 @@ export function createBay(canvas) {
     tiny.dispose();
     await idle(); render(1 / 60);
   };
-  return { st, look, render, screen, ready, warm, renderer, scene, camera, get focusUv() { return focusAt.clone(); }, get lampY() { return lampPos.y; }, get box() { return box; } };
+  return { st, look, render, screen, stoneScreen, ready, warm, renderer, scene, camera, get focusUv() { return focusAt.clone(); }, get lampY() { return lampPos.y; }, get box() { return box; } };
 }
