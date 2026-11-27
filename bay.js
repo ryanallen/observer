@@ -143,8 +143,7 @@ function makeWater(renderer, scene, sky, res) {
           // Moonlight breaks into irregular soft flecks along moving crests.
           float upper = smoothstep(.21, .80, screenUv.y);
           float width = mix(.042, .14, smoothstep(.38, 1.0, screenUv.y));
-          float centre = .54 + .018 * sin(screenUv.y * 13.0 + time * .16)
-                       + .018 * (vnoise(wp.xz * .13) - .5);
+          float centre = .54 + .018 * (vnoise(wp.xz * .13) - .5);
           width *= .80 + .40 * vnoise(wp.xz * .08 + vec2(time * .02));
           float lane = exp(-pow((screenUv.x - centre) / width, 2.0));
           vec2 fp = mat2(.8, -.6, .6, .8) * wp.xz * vec2(6.0, 3.8);
@@ -159,11 +158,11 @@ function makeWater(renderer, scene, sky, res) {
           spec += pow(max(dot(v, reflect(-moonWideB, fine)), 0.0), 780.0) * .34;
           float fleck = spec * smoothstep(.23, .48, facets) * (.30 + .70 * longCrest);
           float crestGlint = .3 + .7 * smoothstep(-.15, .27, wp.y);
-          float topLight = 1.0 + 1.2 * smoothstep(.75, 1.0, screenUv.y);
+          float topLight = .35 + 2.7 * smoothstep(.55, 1.0, screenUv.y);
           col += moonColor * lane * upper * fleck * crestGlint * topLight * 1.42;
           float farFlecks = smoothstep(.76, 1.0, screenUv.y)
-                           * smoothstep(.27, .52, facets) * (.25 + .75 * longCrest);
-          col += moonColor * lane * farFlecks * .16;
+                           * smoothstep(.34, .58, facets) * (.25 + .75 * longCrest);
+          col += moonColor * lane * farFlecks * .55;
           float submergedLamp = 1.0 - step(-0.1, lampPos.y);
           float shallowLamp = submergedLamp * exp(-max(-lampPos.y, 0.0) * .16);
           float underTransmission = shallowLamp * exp(-dot(wp.xz - lampPos.xz, wp.xz - lampPos.xz) / 1.2);
@@ -354,11 +353,11 @@ export function createBay(canvas) {
   let hull = standInBoat(); boat.add(hull);
   let sheave = hull.getObjectByName('sheave');
   const lit = new THREE.Group(); boat.add(lit);
-  const flood = new THREE.SpotLight(0xffdfad, 25, 40, .7, .55, 1.6); flood.position.set(-1.6, 5.8, 6.8); flood.target.position.set(0, 0, 9);
+  const flood = new THREE.SpotLight(0xffdfad, 12, 40, .7, .55, 1.6); flood.position.set(-1.6, 5.8, 6.8); flood.target.position.set(0, 0, 9);
   flood.castShadow = !mobile; flood.shadow.mapSize.set(1024, 1024); flood.shadow.bias = -.0004; lit.add(flood, flood.target);
-  const deck = new THREE.PointLight(0xffc98a, 30, 16, 2); deck.position.set(0, 3.6, 2.4); lit.add(deck);
-  const cabin = new THREE.PointLight(0xffce9a, 25, 12, 2); cabin.position.set(-3.0, 4.2, -2.2); lit.add(cabin);
-  const sideSpill = new THREE.PointLight(0xffbd81, 15, 14, 2); sideSpill.position.set(-3.5, 2.8, 0); lit.add(sideSpill);
+  const deck = new THREE.PointLight(0xffc98a, 12, 16, 2); deck.position.set(0, 3.6, 2.4); lit.add(deck);
+  const cabin = new THREE.PointLight(0xffce9a, 18, 12, 2); cabin.position.set(-3.0, 4.2, -2.2); lit.add(cabin);
+  const sideSpill = new THREE.PointLight(0xffbd81, 30, 18, 2); sideSpill.position.set(-3.5, 1.6, 0); lit.add(sideSpill);
   const fitBoat = () => {
     // set the boat so its sheave hangs over the lamp's resting place, the origin
     boat.position.set(0, 0, 0); boat.rotation.set(0, 0, 0); boat.updateMatrixWorld(true);
@@ -379,6 +378,8 @@ export function createBay(canvas) {
       if (/nav_red/.test(n)) glow(o.material, 0xff4d28, 1.6);
       else if (/nav_green/.test(n)) glow(o.material, 0x1aff5a, 8);
       else if (/mast_white|buoy_light|flood_lamp/.test(n)) glow(o.material, 0xffdfaf, 1.35);
+      // Keep the deck warm and matte while the boat texture is being corrected.
+      if (o.material.name === 'non slip aft deck') o.material = new THREE.MeshStandardMaterial({ color: 0x31261b, roughness: 1 });
     });
   };
   const ready = Promise.allSettled([
@@ -402,8 +403,48 @@ export function createBay(canvas) {
   const buoyLight = new THREE.PointLight(0xff3020, 0, 14, 2); buoyLight.position.set(-34, 3.4, 22); scene.add(buoyLight);
 
   // ---- post: bloom on the lights, a little grain and a vignette ----
-  const composer = new EffectComposer(renderer);
+  const colorTarget = new THREE.WebGLRenderTarget(1, 1, {
+    type: THREE.HalfFloatType,
+    depthTexture: new THREE.DepthTexture(1, 1, THREE.UnsignedIntType),
+  });
+  const composer = new EffectComposer(renderer, colorTarget);
+  composer.renderTarget2.depthTexture = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);
   composer.addPass(new RenderPass(scene, camera));
+  const focus = new ShaderPass({
+    uniforms: {
+      tDiffuse: { value: null }, tDepth: { value: null },
+      focusUv: { value: new THREE.Vector2(.5, .4) }, resolution: { value: new THREE.Vector2(1, 1) },
+      nearClip: { value: camera.near }, farClip: { value: camera.far }, amount: { value: 1 },
+    },
+    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform sampler2D tDiffuse, tDepth; uniform vec2 focusUv, resolution;
+      uniform float nearClip, farClip, amount; varying vec2 vUv;
+      float linearDepth(float z) { return nearClip * farClip / (farClip - z * (farClip - nearClip)); }
+      void main() {
+        vec3 sharp = texture2D(tDiffuse, vUv).rgb;
+        float here = linearDepth(texture2D(tDepth, vUv).r);
+        float pointed = linearDepth(texture2D(tDepth, focusUv).r);
+        float byDepth = smoothstep(.13, .95, abs(log2(max(here, 1.0) / max(pointed, 1.0))));
+        float byHeight = smoothstep(.07, .34, abs(vUv.y - focusUv.y));
+        float blur = amount * max(byDepth * .9, byHeight * .85);
+        vec2 px = vec2(1.0) / resolution * blur * 6.0;
+        float turn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+        vec3 soft = vec3(0.0);
+        for (int i = 0; i < 24; i++) {
+          float a = float(i) * 2.39996323 + turn;
+          float r = sqrt((float(i) + .5) / 24.0);
+          soft += texture2D(tDiffuse, vUv + px * r * vec2(cos(a), sin(a))).rgb;
+        }
+        soft /= 24.0;
+        gl_FragColor = vec4(mix(sharp, soft, blur), 1.0);
+      }`,
+  });
+  const renderFocus = focus.render.bind(focus);
+  focus.render = (r, write, read, dt, mask) => {
+    focus.uniforms.tDepth.value = read.depthTexture;
+    renderFocus(r, write, read, dt, mask);
+  };
+  composer.addPass(focus);
   const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .22, .25, .91); composer.addPass(bloom);
   composer.addPass(new OutputPass());
   const grain = new ShaderPass({
@@ -418,14 +459,19 @@ export function createBay(canvas) {
 
   // ---- view: a narrow lens from above at an angle; the pointer turns it, the dive brings it down after the lamp ----
   const look = { x: 0, y: 0, sx: 0, sy: 0 };
+  const focusAt = new THREE.Vector2(.5, .4);
+  let pointerActive = false;
+  addEventListener('pointermove', e => { if (e.pointerType === 'mouse') pointerActive = true; });
+  document.addEventListener('mouseleave', () => { pointerActive = false; });
   const st = { dive: 0, floor: 0, fade: 0 };
-  const tgt = new THREE.Vector3(0, HANG, 0), lampPos = new THREE.Vector3();
+  const tgt = new THREE.Vector3(0, HANG, 0), lampPos = new THREE.Vector3(), viewAim = new THREE.Vector3(), parallax = new THREE.Vector3();
   const cableEnd = new THREE.Vector3(), cableAxis = new THREE.Vector3(), boatCenter = new THREE.Vector3();
   let W = 1, H = 1, time = 0;
   const resize = () => {
     const dpr = Math.min(mobile ? 1.5 : 2, devicePixelRatio || 1);
     W = innerWidth; H = innerHeight; renderer.setPixelRatio(dpr); renderer.setSize(W, H, false);
     wu.screenSize.value.set(W * dpr, H * dpr);
+    focus.uniforms.resolution.value.set(W * dpr, H * dpr);
     composer.setPixelRatio(dpr); composer.setSize(W, H); bloom.resolution.set(W / 2, H / 2);
     waterTarget.setSize(Math.round((mobile ? 384 : 768) * W / H), mobile ? 384 : 768);
     camera.aspect = W / H; camera.updateProjectionMatrix(); snowMat.uniforms.px.value = H * dpr / 18;
@@ -485,20 +531,39 @@ export function createBay(canvas) {
     if (box) box.visible = fl > .05;
 
     // the camera
-    look.sx += (look.x - look.sx) * Math.min(1, dt * 2.2); look.sy += (look.y - look.sy) * Math.min(1, dt * 2.2);
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const idleX = still ? 0 : Math.sin(time * .17) * .35;
+    const idleY = still ? 0 : Math.sin(time * .11 + 1.3) * .25;
+    const wantedX = pointerActive ? look.x : idleX, wantedY = pointerActive ? look.y : idleY;
+    const pointerEase = 1 - Math.exp(-dt * 4);
+    look.sx += (wantedX - look.sx) * pointerEase;
+    look.sy += (wantedY - look.sy) * pointerEase;
+    const wantedFocusX = pointerActive ? (look.x + 1) * .5 : .5 + Math.sin(time * .07) * .18;
+    const wantedFocusY = pointerActive ? (1 - look.y) * .5 : .4 + Math.sin(time * .05 + 2) * .12;
+    focusAt.x += (wantedFocusX - focusAt.x) * pointerEase * .7;
+    focusAt.y += (wantedFocusY - focusAt.y) * pointerEase * .7;
+    focus.uniforms.focusUv.value.copy(focusAt);
+    const surface = 1 - smooth(0, .18, d);
+    focus.uniforms.amount.value = surface;
     const free = 1 - smooth(0, .3, d) * .7;
-    const yaw = Math.PI / 4 + look.sx * .5 * free + d * .9;
-    const pitch = mix(.54, .3, smooth(.3, .6, d)) + mix(0, .55, smooth(.2, 1, fl)) - look.sy * .12 * free;
-    const dist = mix(96, 26, smooth(0, .55, d)) * mix(1, .3, smooth(0, 1, fl));
+    const yaw = Math.PI / 4 + look.sx * .5 * free * (1 - surface) + d * .9;
+    const pitch = mix(.54, .3, smooth(.3, .6, d)) + mix(0, .55, smooth(.2, 1, fl)) - look.sy * .12 * free * (1 - surface);
+    const dist = mix(92, 26, smooth(0, .55, d)) * mix(1, .3, smooth(0, 1, fl));
     // a tall screen keeps the same width of view as a wide one
     const fv = mix(16, 34, smooth(0, .55, d)) * Math.PI / 180;
     camera.fov = 2 * Math.atan(Math.tan(fv / 2) * Math.max(1, 1.2 / camera.aspect)) * 180 / Math.PI; camera.updateProjectionMatrix();
     const aim = box && fl > 0 ? lampPos.clone().lerp(box.position, .55 * smooth(0, 1, fl)) : lampPos;
-    tgt.lerp(aim, Math.min(1, dt * (d > 0 ? 6 : 2)));
+    if (surface > .999) tgt.copy(lampPos);
+    else tgt.lerp(aim, Math.min(1, dt * (d > 0 ? 6 : 2)));
     camera.position.set(tgt.x + Math.cos(pitch) * Math.sin(yaw) * dist, tgt.y + Math.sin(pitch) * dist, tgt.z + Math.cos(pitch) * Math.cos(yaw) * dist);
+    parallax.set(surface * Math.cos(Math.PI / 4) * look.sx * .18,
+      surface * look.sy * .10,
+      -surface * Math.sin(Math.PI / 4) * look.sx * .18);
+    camera.position.add(parallax);
     water.position.set(camera.position.x, 0, camera.position.z);
     // the camera follows the lamp down, but stays above the water until the lamp is well under, then drops through it
-    camera.lookAt(tgt);
+    viewAim.copy(tgt).add(parallax);
+    camera.lookAt(viewAim);
     const cu = camera.position.y < 0;
     const fogCol = cu ? fogBelow.clone().lerp(black, smooth(-2, -22, camera.position.y)) : fogAbove;
     scene.fog.color.copy(fogCol); scene.background.copy(fogCol);
