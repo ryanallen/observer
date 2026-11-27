@@ -421,14 +421,16 @@ def boat():
   for y in (-5.55,5):
    cyl('bollard',(x*.72,y,1.23),.10,.28,steel,12);rod('bollard crossbar',(x*.72-.18,y,1.36),(x*.72+.18,y,1.36),.045,steel)
   for y in (-4.7,-2.5,.1):ring('tyre fender',(x*1.03,y,.54),.34,.105,dark,(0,math.pi/2,0))
- # Parallel legs stand on the transom corners and lean aft by ~15 degrees.
- for x in (-.71,.71):
-  square_beam('chipped square orange A frame leg',(x,-6.87,1.0),(x,-7.74,4.26),.30,.26,aframe_orange)
+ # Round, open stern gantry: the legs lean aft and inward to the sheave beam.
+ for side in (-1,1):
+  x=side*.71
+  rod('chipped round orange A frame leg',(side*1.06,-6.87,1.0),(x,-7.74,4.26),.087,aframe_orange,14)
   rod('hydraulic ram barrel',(x*1.25,-5.25,1.15),(x,-7.27,2.77),.072,dark,16)
   rod('chromed hydraulic piston',(x,-7.27,2.77),(x,-7.39,3.04),.045,steel,14)
   ball('ram hinge',(x*1.25,-5.25,1.15),(.13,.13,.13),steel,12)
   ball('ram hinge',(x,-7.39,3.04),(.10,.10,.10),steel,12)
- square_beam('horizontal A frame crossbeam',(-.78,-7.74,4.26),(.78,-7.74,4.26),.25,.25,aframe_cross)
+ rod('round orange A frame crossbar',(-.78,-7.74,4.26),(.78,-7.74,4.26),.083,aframe_cross,14)
+ for x in (-.71,.71):ball('orange gantry tube joint',(x,-7.74,4.26),(.105,.105,.105),aframe_orange,12)
  rod('sheave hanger',(0,-7.74,4.26),(0,-7.74,4.05),.06,steel)
  cyl('sheave cheeks',(0,-7.74,3.96),.23,.27,steel,24,(0,math.pi/2,0))
  cyl('sheave wheel',(0,-7.74,3.96),.16,.30,dark,24,(0,math.pi/2,0))
@@ -907,7 +909,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v84.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v85.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
