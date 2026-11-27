@@ -128,7 +128,7 @@ function makeWater(renderer, scene, sky, res) {
           float crestNoise = smoothstep(.34, .68, vnoise(wp.xz * vec2(2.7, 6.1) + vec2(time * .16, -time * .24)));
           float sideFade = exp(-pow((screenUv.x - .52) / .40, 2.0));
           float fineCrest = smoothstep(.45, .70, vnoise(wp.xz * vec2(5.0, 8.0) + vec2(time * .12, -time * .18)));
-          float swellSheen = longCrest * fineCrest * sideFade;
+          float swellSheen = longCrest * fineCrest * sideFade * smoothstep(.30, .75, screenUv.y);
           vec3 col = waterColor + vec3(.006, .007, .008) * longCrest
                    + vec3(.012, .012, .012) * swellSheen
                    + vec3(.006, .0075, .009) * wavelets * crestNoise;
@@ -153,9 +153,9 @@ function makeWater(renderer, scene, sky, res) {
           float lampFall = pow(smoothstep(lampScreen.y - .34 * reflectionReach, lampScreen.y - .04 * reflectionReach, screenUv.y), .72)
                          * (1.0 - smoothstep(lampScreen.y - .02, lampScreen.y + .03, screenUv.y));
           float columns = max(cabinLane * cabinFall, lampLane * lampFall);
-          vec2 dashAt = screenUv * vec2(140.0, 280.0) + vec2(fine.x * 1.3 + ripple, time * .5);
-          float dashes = smoothstep(.56, .82, vnoise(dashAt)) * columns;
-          col += vec3(1.0, .60, .30) * (warmth * columns * 3.8 * (.08 + .92 * broken) * (1.0 - .45 * tallScreen) + dashes * .18);
+          vec2 dashAt = screenUv * vec2(260.0, 500.0) + vec2(fine.x * 1.3 + ripple, time * .5);
+          float dashes = smoothstep(.55, .80, vnoise(dashAt)) * columns;
+          col += vec3(1.0, .60, .30) * (warmth * columns * 1.4 * (.08 + .92 * broken) * (1.0 - .45 * tallScreen) + dashes * .28);
           // Moonlight breaks into irregular soft flecks along moving crests.
           float upper = smoothstep(.16, .52, screenUv.y);
           float width = mix(.025, .070, smoothstep(.30, 1.0, screenUv.y));
