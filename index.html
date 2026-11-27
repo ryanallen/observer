@@ -124,10 +124,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b48')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b49')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
-  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b48')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b49')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
@@ -143,15 +143,13 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const say = async (text, hold) => {
     if (skipping) return;
     const c = $('cap'); c.textContent = text; c.classList.add('on');
-    const v = sfx[text];
-    if (v && soundOn) { v.currentTime = 0; v.play().catch(() => {}); hold = Math.max(hold, (v.duration || 0) * 1000 + 900); }
-    speaking++; await wait(hold); speaking--; c.classList.remove('on'); await wait(1500);
+    // the line stays up for as long as it is spoken; the bed dips about 6 dB under it
+    const h = play(text), len = soundLength(text);
+    if (h && len) hold = Math.max(hold, len * 1000 + 900);
+    duck(true); await wait(hold); duck(false); c.classList.remove('on'); await wait(1500);
     // each line is said once, so its sound is let go
-    if (v) { release(text); }
+    release(text);
   };
-  let speaking = 0;
-  // a sound that is done is stopped and its memory let go
-  const release = k => { const el = sfx[k]; if (!el) return; el.pause(); el.removeAttribute('src'); el.load(); delete sfx[k]; };
 
   // ---- the converging lines: from all round the edge, in to the point ----
   const rays = Array.from({ length: 40 }, (_, i) => {
@@ -180,68 +178,121 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   };
   let eyeT0 = 1e9, lastBeat = -1;     // when the eye leaves (with a ping); the last ping that beat
 
-  // ---- the heartbeat: the two beats cut from the ElevenLabs take, in turn, or one made here (?beat=synth) ----
-  // sound is on unless turned off (remembered in this browser); a browser lets it start only once the page is clicked,
-  // tapped or a key pressed, so until then it waits
+  // ---- sound: one AudioContext; every sound is decoded into a buffer and played through three buses (voice, bed,
+  // effects) into one output, so a phone that plays only one media stream at a time still hears them all together.
+  // Where a browser has no AudioContext, or a file won't decode, that sound plays through an audio element instead.
+  // Sound is on unless turned off (remembered in this browser); a browser lets it start only inside a click, tap or key,
+  // so the OBSERVE click is where it starts ----
   let want = true; try { want = localStorage.getItem('observer-sound') !== 'off'; } catch (e) {}
-  let ac = null, beats = [], beatN = 0, soundOn = false;
+  let ac = null, bus = null, beatN = 0, soundOn = false;
   const synth = new URLSearchParams(location.search).get('beat') === 'synth';
-  const startSound = async () => {
-    if (ac) { soundOn = true; ac.resume(); [...beats, sfx.lines, sfx.pull, sfx.follow].forEach(el => { if (!el || !el.paused) return; el.muted = true; el.play().then(() => { el.pause(); el.currentTime = 0; el.muted = false; }).catch(() => { el.muted = false; }); }); return; }
-    ac = new (window.AudioContext || window.webkitAudioContext)(); soundOn = true;
-    // audio elements, not fetch, so the page plays from a file on disk as well as from a server; each is played once,
-    // muted, inside the tap, so that later plays are allowed
-    const load = (u, vol) => { const el = new Audio(u); el.preload = 'auto'; el.volume = vol; el.muted = true;
-      el.play().then(() => { el.pause(); el.currentTime = 0; el.muted = false; }).catch(() => { el.muted = false; }); return el; };
-    if (!synth) beats = ['audio/heartbeat-1.mp3', 'audio/heartbeat-2.mp3'].map(u => load(u, .9));
-    // the lines' sound and the pull's, cut from a waterphone and an Apprehension Engine (?lines=a-d, ?pull=a-b to compare)
-    const q = new URLSearchParams(location.search);
-    sfx.lines = load(`audio/lines-${/^[a-d]$/.test(q.get('lines')) ? q.get('lines') : 'a'}.mp3`, .55);
-    for (const [line, u] of Object.entries(VOICE)) sfx[line] = load(u, 1);
-    sfx.pull = load(`audio/pull-${/^[ab]$/.test(q.get('pull')) ? q.get('pull') : 'a'}.mp3`, .8);
-    // Source cut: waterphone.wav 98.8–106.8 s, with a quiet two-tap echo tail.
-    sfx.follow = load('audio/line-follow.mp3?v=1', .4);
-    // a little of the Apprehension Engine while the button trembles; played at once inside the OBSERVE click, so not primed
-    sfx.tremble = new Audio('audio/tremble.mp3?v=1'); sfx.tremble.volume = .6;
-    // the descent: the splash as the lamp goes in, then bubbles, then the deep
-    sfx.splash = load('audio/splash.mp3?v=1', .7);
-    sfx.splash2 = load('audio/splash.mp3?v=1', .45);
-    sfx.bubbles = load('audio/bubbles-loop.mp3?v=1', 0); sfx.bubbles.loop = true;
-    sfx.deep = load('audio/deep-loop.mp3?v=1', 0); sfx.deep.loop = true;
+  const qs = new URLSearchParams(location.search);
+  // name: [file, bus, level, loops]. The lines' sound and the pull are cut from a waterphone and an Apprehension Engine
+  // (?lines=a-d, ?pull=a-b to compare); the follow from waterphone.wav 98.8-106.8 s with a quiet two-tap echo tail; the
+  // tremble is a little of the Apprehension Engine while OBSERVE trembles; the descent is the splash, bubbles, the deep
+  const SOUNDS = {
+    beat1: ['audio/heartbeat-1.mp3', 'sfx', .9], beat2: ['audio/heartbeat-2.mp3', 'sfx', .9],
+    lines: [`audio/lines-${/^[a-d]$/.test(qs.get('lines')) ? qs.get('lines') : 'a'}.mp3`, 'sfx', .55],
+    pull: [`audio/pull-${/^[ab]$/.test(qs.get('pull')) ? qs.get('pull') : 'a'}.mp3`, 'sfx', .8],
+    follow: ['audio/line-follow.mp3?v=1', 'bed', .4], tremble: ['audio/tremble.mp3?v=1', 'sfx', .6],
+    splash: ['audio/splash.mp3?v=1', 'sfx', .7], splash2: ['audio/splash.mp3?v=1', 'sfx', .45],
+    bubbles: ['audio/bubbles-loop.mp3?v=1', 'bed', .35, true], deep: ['audio/deep-loop.mp3?v=1', 'bed', .55, true],
   };
-  // the loops under the descent, faded by hand and kept about 6 dB under a voice line while it plays
-  const bed = { bubbles: 0, deep: 0 };
-  const mixBed = () => {
-    const duck = speaking ? .5 : 1;
-    if (sfx.bubbles) sfx.bubbles.volume = Math.min(1, .35 * bed.bubbles * duck);
-    if (sfx.deep) sfx.deep.volume = Math.min(1, .55 * bed.deep * duck);
-    if (sfx.bubbles || sfx.deep) requestAnimationFrame(mixBed);
+  for (const [line, u] of Object.entries(VOICE)) SOUNDS[line] = [u, 'voice', 1];
+  const buf = {}, live = {}, byUrl = {}, failed = {}, elems = {};
+  const ensureAudio = () => {
+    if (ac) return ac;
+    // ?audio=elements tries the fallback where Web Audio does work
+    const C = qs.get('audio') === 'elements' ? null : window.AudioContext || window.webkitAudioContext; if (!C) return null;
+    try { ac = new C(); } catch (e) { return null; }
+    // on iPhone, play through the silent switch as music does
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+    const master = ac.createGain(); master.gain.value = want ? 1 : 0; master.connect(ac.destination);
+    bus = { master };
+    for (const k of ['voice', 'bed', 'sfx']) { bus[k] = ac.createGain(); bus[k].connect(master); }
+    return ac;
   };
+  // the fallback for one sound: an audio element, loaded and primed muted inside the click so later plays are allowed
+  const element = k => {
+    if (elems[k]) return elems[k];
+    const [u, , level, loop] = SOUNDS[k];
+    const el = new Audio(u); el.preload = 'auto'; el.volume = level; el.loop = !!loop; elems[k] = el;
+    return el;
+  };
+  // each file is fetched and decoded once, in idle moments before it is needed
+  const decode = k => {
+    if (!SOUNDS[k] || buf[k]) return Promise.resolve(buf[k]);
+    if (!ensureAudio()) { failed[k] = true; return Promise.resolve(null); }
+    const u = SOUNDS[k][0];
+    byUrl[u] = byUrl[u] || fetch(u).then(r => r.arrayBuffer()).then(a => new Promise((ok, no) => { const p = ac.decodeAudioData(a, ok, no); if (p && p.then) p.then(ok, no); })).catch(() => null);
+    return byUrl[u].then(b => { if (!SOUNDS[k]) return null; if (b) buf[k] = b; else failed[k] = true; return b; });
+  };
+  const decodeAll = async () => { for (const k of Object.keys(SOUNDS)) { await new Promise(r => (window.requestIdleCallback || setTimeout)(r)); await decode(k); } };
+  const startSound = () => {
+    soundOn = want;
+    if (ensureAudio()) { ac.resume(); bus.master.gain.setTargetAtTime(want ? 1 : 0, ac.currentTime, .02); }
+    // without an AudioContext every sound uses its element: prime them now, inside the gesture
+    else for (const k of Object.keys(SOUNDS)) { const el = element(k); el.muted = true; el.play().then(() => { el.pause(); el.currentTime = 0; el.muted = false; }).catch(() => { el.muted = false; }); }
+    decodeAll();
+  };
+  const soundLength = k => buf[k] ? buf[k].duration : (elems[k] && elems[k].duration) || 0;
+  const play = (k, opts = {}) => {
+    if (!soundOn || !SOUNDS[k]) return null;
+    const [, b, level, loop] = SOUNDS[k];
+    const gain = opts.gain ?? level;
+    if (ac && buf[k]) {
+      const src = ac.createBufferSource(); src.buffer = buf[k]; src.loop = !!loop;
+      const g = ac.createGain(); g.gain.value = gain;
+      src.connect(g).connect(bus[b]); src.start();
+      const h = { src, g, level: gain }; live[k] = h; src.onended = () => { if (live[k] === h) delete live[k]; };
+      return h;
+    }
+    if (ac && !failed[k]) return null;   // still decoding: skipped rather than played late
+    const el = element(k); el.volume = Math.max(0, Math.min(1, gain)); el.currentTime = 0; el.play().catch(() => {});
+    const h = { el, level: gain }; live[k] = h; return h;
+  };
+  // fades are ramps on the sound's own gain (or its element's volume, on the fallback)
+  const fade = (k, to, ms) => {
+    const h = live[k]; if (!h) return;
+    if (h.g) { const t = ac.currentTime; h.g.gain.cancelScheduledValues(t); h.g.gain.setValueAtTime(h.g.gain.value, t); h.g.gain.linearRampToValueAtTime(to, t + ms / 1000); }
+    else tweenOn(h.el, 'volume', Math.max(0, Math.min(1, to)), ms, x => x);
+  };
+  const stop = (k, ms = 30) => {
+    const h = live[k]; if (!h) return; fade(k, 0, ms);
+    if (h.src) { try { h.src.stop(ac.currentTime + ms / 1000 + .02); } catch (e) {} } else setTimeout(() => h.el.pause(), ms + 20);
+    delete live[k];
+  };
+  // a sound whose stage is over is stopped and its buffer (or element) let go
+  const release = k => { stop(k); delete buf[k]; if (elems[k]) { const el = elems[k]; setTimeout(() => { el.pause(); el.removeAttribute('src'); el.load(); }, 80); delete elems[k]; } };
+  // while a line is spoken the bed (the follow, bubbles and deep) dips about 6 dB
+  const duck = on => {
+    if (bus) bus.bed.gain.setTargetAtTime(on ? .5 : 1, ac.currentTime, .12);
+    else for (const k of ['follow', 'bubbles', 'deep']) if (live[k] && live[k].el) live[k].el.volume = Math.min(1, live[k].level * (on ? .5 : 1));
+  };
+  const followVolume = quiet => fade('follow', quiet ? .25 : .4, 300);
+  window.observerSound = () => ({ ac, bus, live: Object.keys(live), decoded: Object.keys(buf), elements: Object.keys(elems) });
   const descentSound = async () => {
-    if (!soundOn || !sfx.splash) return;
+    if (!soundOn) return;
     while (bay.lampY > 0) await wait(30);
     play('splash'); setTimeout(() => release('splash'), 5600);
     await wait(4300);
-    requestAnimationFrame(mixBed);
-    sfx.bubbles.play().catch(() => {}); tweenOn(bed, 'bubbles', 1, 900);
+    play('bubbles', { gain: 0 }); fade('bubbles', .35, 900);
     await wait(4000);
-    sfx.deep.play().catch(() => {}); tweenOn(bed, 'deep', 1, 4000); await tweenOn(bed, 'bubbles', 0, 4000);
-    release('bubbles');
+    play('deep', { gain: 0 }); fade('deep', .55, 4000); fade('bubbles', 0, 4000);
+    await wait(4000); release('bubbles');
   };
-  const sfx = {};
-  const play = k => { if (soundOn && sfx[k]) { sfx[k].currentTime = 0; sfx[k].play().catch(() => {}); } };
-  const followVolume = quiet => { if (sfx.follow) sfx.follow.volume = quiet ? .25 : .4; };
   const thump = (at, f0, f1, gain) => {   // a sine dropping in pitch, a fast attack, a slow fall
     const o = ac.createOscillator(), gn = ac.createGain();
     o.frequency.setValueAtTime(f0, at); o.frequency.exponentialRampToValueAtTime(f1, at + .14);
     gn.gain.setValueAtTime(0, at); gn.gain.linearRampToValueAtTime(gain, at + .008); gn.gain.exponentialRampToValueAtTime(.0008, at + .42);
-    o.connect(gn).connect(ac.destination); o.start(at); o.stop(at + .45);
+    o.connect(gn).connect(bus.sfx); o.start(at); o.stop(at + .45);
   };
+  // ---- the heartbeat: the two beats cut from the ElevenLabs take, in turn, or one made here (?beat=synth) ----
   const beat = () => {
-    if (!ac || !soundOn) return;
-    const b = beats[beatN++ % 2];
-    if (!synth && b) { b.currentTime = 0; b.play().catch(() => {}); return; }
-    const now = ac.currentTime + .01; thump(now, 62, 38, .9); thump(now + .3, 56, 36, .55);   // lub, dub
+    if (!soundOn) return;
+    const k = beatN++ % 2 ? 'beat2' : 'beat1';
+    if (!synth) { play(k); return; }
+    if (ac) { const now = ac.currentTime + .01; thump(now, 62, 38, .9); thump(now + .3, 56, 36, .55); }   // lub, dub
   };
   // ---- marine snow ----
   const snow = Array.from({ length: 260 }, () => ({ x: Math.random(), y: Math.random(), z: .3 + Math.random() * .7, s: Math.random() }));
@@ -581,7 +632,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   showSound();
   $('sound').onclick = e => {
     e.stopPropagation(); want = !want; try { localStorage.setItem('observer-sound', want ? 'on' : 'off'); } catch (err) {}
-    if (want) startSound(); else soundOn = false;
+    if (want) startSound(); else { soundOn = false; if (bus) bus.master.gain.setTargetAtTime(0, ac.currentTime, .02); for (const k in live) if (live[k].el) live[k].el.pause(); }
     showSound(); hideTip('sound');
   };
   // the first tap or key lets the sound start (a browser plays nothing before one)
@@ -700,7 +751,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     (async () => {
       while (bay.camera.position.y > 0) await wait(20);
       washT0 = t;
-      if (soundOn && sfx.splash2) { play('splash2'); await wait(1200); await tweenOn(sfx.splash2, 'volume', 0, 400); }
+      if (play('splash2')) { await wait(1200); stop('splash2', 400); }
       release('splash2');
     })();
     while (bay.lampY > 0) await wait(30);
@@ -724,7 +775,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     S.ring = 0;
     // the lab loads while the ink closes; the sea's sound goes down with the light
     const labReady = loadLab();
-    if (sfx.deep) tweenOn(bed, 'deep', 0, 3200);
+    fade('deep', 0, 3200);
     await tween('ink', 1, 3600, k => k * k * k);
     // all black: the bay is let go, every model, texture and sound of it
     release('deep'); release('bubbles');
