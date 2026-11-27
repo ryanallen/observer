@@ -312,8 +312,8 @@ export function createBay(canvas) {
   const lamp = new THREE.Group();
   const cage = new THREE.MeshStandardMaterial({ color: 0x303739, roughness: .62, metalness: .75 });
   const topCap = new THREE.Mesh(new THREE.CylinderGeometry(.09, .10, .06, 20), cage); topCap.position.y = .20; lamp.add(topCap);
-  const globe = new THREE.Mesh(new THREE.SphereGeometry(.18, 32, 24), new THREE.ShaderMaterial({
-    uniforms: { core: { value: new THREE.Color().setRGB(1.6, .75, .18) }, rim: { value: new THREE.Color().setRGB(1.2, .32, .03) } },
+  const globe = new THREE.Mesh(new THREE.SphereGeometry(.205, 32, 24), new THREE.ShaderMaterial({
+    uniforms: { core: { value: new THREE.Color().setRGB(2.0, 1.65, 1.15) }, rim: { value: new THREE.Color().setRGB(1.2, .60, .25) } },
     vertexShader: `varying vec3 n, v; void main() { vec4 p = modelViewMatrix * vec4(position, 1.0); n = normalize(normalMatrix * normal); v = normalize(-p.xyz); gl_Position = projectionMatrix * p; }`,
     fragmentShader: `uniform vec3 core, rim; varying vec3 n, v; void main() {
       float face = max(dot(normalize(n), normalize(v)), 0.0);
@@ -555,6 +555,10 @@ export function createBay(canvas) {
       ly, top.z + (Math.cos(time * .7) * .05 + boat.rotation.x * swingLength) * sway);
     lamp.position.copy(lampPos);
     lamp.scale.setScalar(1.7);
+    const surfaceGlobe = d === 0;
+    globe.scale.setScalar(surfaceGlobe ? 1 : .18 / .205);
+    globe.material.uniforms.core.value.setRGB(surfaceGlobe ? 2.0 : 1.6, surfaceGlobe ? 1.65 : .75, surfaceGlobe ? 1.15 : .18);
+    globe.material.uniforms.rim.value.setRGB(1.2, surfaceGlobe ? .60 : .32, surfaceGlobe ? .25 : .03);
     cableEnd.set(lampPos.x, lampPos.y + .3, lampPos.z);
     cableAxis.copy(top).sub(cableEnd);
     cable.position.copy(top).add(cableEnd).multiplyScalar(.5);
