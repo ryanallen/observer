@@ -109,7 +109,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
   // a line on screen, and the Observer's recording of it where there is one; the line stays up while it is spoken
-  const VOICE = {};
+  const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3?v=2' };
   const say = async (text, hold) => {
     if (skipping) return;
     const c = $('cap'); c.textContent = text; c.classList.add('on');
@@ -352,9 +352,9 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     // the point, born where the line shut, and its first heartbeat at once
     t = 0; lastBeat = -1; S.pt = 1;
     await wait(2200);
-    await say('There is something in the dark.', 3200);
+    await say('This is a point.', 3200);
     tween('linesA', 1, 1600); tween('lines', 1, 6500, t => t); if (!skipping) play('lines');
-    await say('The lines lead here.', 5200);
+    await say('Every line, followed far enough, comes to it.', 5200);
     await wait(skipping ? 0 : 600);
     tween('lines', 1, 300); $('skip').style.display = 'none';
     eyeT0 = Math.ceil(t / 3.33) * 3.33; S.eye = 1; S.titleA = 1; await wait((eyeT0 - t) * 1000 + 2400);
