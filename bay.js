@@ -312,7 +312,13 @@ function makeWater(renderer, scene, sky, res) {
     textureMatrix.set(.5, 0, 0, .5, 0, .5, 0, .5, 0, 0, .5, .5, 0, 0, 0, 1);
     textureMatrix.multiply(mirrorCam.projectionMatrix).multiply(mirrorCam.matrixWorldInverse);
     const cur = r.getRenderTarget(); water.visible = false;
-    const hidden = s.children.filter(o => o === sky || o.isPoints || o.position.y < -10);
+    // a light is never hidden: the number of lights is part of every shader, and changing it rebuilds them all
+    const hidden = [];
+    for (const o of s.children) {
+      if (o.isLight) continue;
+      if (o === sky || o.isPoints) hidden.push(o);
+      else if (o.position.y < -10) { let lights = false; o.traverse(x => { if (x.isLight) lights = true; }); if (lights) o.children.forEach(c => { if (!c.isLight) hidden.push(c); }); else hidden.push(o); }
+    }
     hidden.forEach(o => { o.userData.mirrorWasVisible = o.visible; o.visible = false; });
     r.setRenderTarget(rt); r.state.buffers.depth.setMask(true); r.clear(); r.render(s, mirrorCam);
     hidden.forEach(o => { o.visible = o.userData.mirrorWasVisible; });
@@ -588,10 +594,10 @@ export function createBay(canvas) {
       const seat = b.getObjectByName('gem_seat'), glowAt = b.getObjectByName('gem_glow');
       const g = gs.scene; g.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; gemMat = o.material; } });
       (seat || b).add(g);
-      gemLight = new THREE.PointLight(0xff2408, 0, 3.2, 2); (glowAt || seat || b).add(gemLight);
+      gemLight = new THREE.PointLight(0xff2408, 0, 3.2, 2); scene.add(gemLight);
       b.position.set(.35, SEABED + floorY(.35, .45) - BOX_SINK, .45); b.rotation.set(.04, .7, -.2); b.scale.setScalar(BOX_SCALE);
       b.visible = false; scene.add(b); b.updateMatrixWorld(true);
-      (glowAt || seat || b).getWorldPosition(motes.position);
+      (glowAt || seat || b).getWorldPosition(motes.position); gemLight.position.copy(motes.position);
       scene.add(siltDrift(b));
       box = b;
     }),
@@ -624,7 +630,12 @@ export function createBay(canvas) {
     surfaceFreed = true;
     for (const k of ['scenery', 'stillMask', 'depthMap', 'shoreMap']) { const t = plate.uniforms[k].value; if (t) t.dispose(); plate.uniforms[k].value = null; }
     plateReady = false; plate.enabled = false; plate.uniforms.shoreReady.value = 0; focus.uniforms.photoDepth.value = null; focus.uniforms.photoActive.value = 0;
-    for (const o of [water, boat, sky, buoy].filter(Boolean)) { scene.remove(o); disposeTree(o); }
+    // its lights stay in the scene, dark: removing them would change the light count and rebuild every shader
+    for (const o of [water, boat, sky, buoy].filter(Boolean)) {
+      const lights = []; o.traverse(x => { if (x.isLight) lights.push(x); });
+      lights.forEach(l => { scene.attach(l); l.intensity = 0; l.userData.out = true; if (l.shadow) l.shadow.autoUpdate = false; });
+      scene.remove(o); disposeTree(o);
+    }
     waterTarget.dispose();
   };
   // silt drifted against the box's sides, deepest where it leans and spilling over its low edge
@@ -917,6 +928,7 @@ export function createBay(canvas) {
     for (const pool of aftPools) pool.intensity = 12 * lightBoost * surfacePools;
     roofPool.intensity = 2.5 * lightBoost * surfacePools;
     sideSpill.intensity = 3 * lightBoost;
+    if (surfaceFreed) for (const l of [flood, deck, cabin, ...workPools, ...aftPools, roofPool, sideSpill]) l.intensity = 0;
     const base = boat.userData.base;
     boatCenter.copy(base).multiplyScalar(boatScale).applyAxisAngle(THREE.Object3D.DEFAULT_UP, heading);
     const hullWave = (x, z) => waveHeight(boatCenter.x + headingCos * x + headingSin * z,
@@ -1054,9 +1066,12 @@ export function createBay(canvas) {
   // compile every shader and draw one frame while the bay is still hidden, so its first visible frame doesn't stall
   // one material at a time in idle moments, the scene's and the passes' own, then a single first draw
   const idle = () => new Promise(r => window.requestIdleCallback ? requestIdleCallback(() => r(), { timeout: 400 }) : setTimeout(r, 60));
-  const warm = async () => {
-    const seen = new Set(), jobs = [];
-    scene.traverse(o => { for (const m of [].concat(o.material || [])) if (!seen.has(m)) { seen.add(m); jobs.push([o, camera, scene]); } });
+  const seen = new Set(), seenGeo = new Set();
+  const warm = async (gate) => {
+    const jobs = [];
+    const pause = async () => { if (gate) await gate(); await idle(); };
+    // a material changed since it was last made ready (the silt arriving) counts as new
+    scene.traverse(o => { for (const m of [].concat(o.material || [])) { const k = m.uuid + ':' + m.version; if (!seen.has(k)) { seen.add(k); jobs.push([o, camera, scene]); } } });
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2)), flat = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     for (const pass of composer.passes) for (const k in pass) {
       const v = pass[k];
@@ -1069,21 +1084,38 @@ export function createBay(canvas) {
     const tiny = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType });
     const drawables = []; scene.traverse(x => { if (x.isMesh || x.isPoints || x.isLine) drawables.push(x); });
     for (const [o, c, sc] of jobs) {
-      await idle();
+      await pause();
       try {
         renderer.setRenderTarget(tiny);
         if (sc) {
           const keep = drawables.map(x => [x, x.visible, x.frustumCulled]);
+          const up = []; for (let p = o.parent; p; p = p.parent) { up.push([p, p.visible]); p.visible = true; }
           drawables.forEach(x => { x.visible = x === o; }); o.frustumCulled = false;
           renderer.render(scene, camera);
-          keep.forEach(([x, v, f]) => { x.visible = v; x.frustumCulled = f; });
+          keep.forEach(([x, v, f]) => { x.visible = v; x.frustumCulled = f; }); up.forEach(([p, v]) => { p.visible = v; });
         } else renderer.render(o, c);
       } catch (e) {}
       renderer.setRenderTarget(null);
     }
+    // then every mesh not yet drawn, in small batches, shadows included: each batch uploads its buffers in its own moment
+    const fresh = drawables.filter(x => x.geometry && !seenGeo.has(x.geometry.uuid));
+    for (let i = 0; i < fresh.length; i += 24) {
+      await pause();
+      const batch = new Set(fresh.slice(i, i + 24)), up = [];
+      batch.forEach(o => { seenGeo.add(o.geometry.uuid); for (let p = o.parent; p; p = p.parent) if (!p.visible) { up.push(p); p.visible = true; } });
+      const keep = drawables.map(x => [x, x.visible, x.frustumCulled]);
+      drawables.forEach(x => { x.visible = batch.has(x); if (batch.has(x)) x.frustumCulled = false; });
+      try { renderer.setRenderTarget(tiny); renderer.shadowMap.needsUpdate = true; renderer.render(scene, camera); } catch (e) {}
+      renderer.setRenderTarget(null);
+      keep.forEach(([x, v, f]) => { x.visible = v; x.frustumCulled = f; }); up.forEach(p => { p.visible = false; });
+    }
     tiny.dispose();
     await idle(); render(1 / 60);
   };
+  // once the surface is ready, the floor (box, stone, seabed, silt) loads too and is made ready the same way, a piece at a
+  // time, so the dive never waits on it
+  // gate: the page says when the screen is quiet enough for a stall to go unseen
+  const warmAll = async (gate) => { await warm(gate); await loadFloor(); await idle(); await warm(gate); };
   // the bay is over: every geometry, texture and target it made, and the context itself, are let go
   const dispose = () => {
     if (!surfaceFreed) freeSurface();
@@ -1092,5 +1124,5 @@ export function createBay(canvas) {
     composer.renderTarget1.dispose(); composer.renderTarget2.dispose();
     removeEventListener('resize', resize); renderer.dispose(); renderer.forceContextLoss();
   };
-  return { st, look, render, screen, stoneScreen, ready, dispose, warm, renderer, scene, camera, get focusUv() { return focusAt.clone(); }, get lampY() { return lampPos.y; }, get box() { return box; } };
+  return { st, look, render, screen, stoneScreen, ready, dispose, warm: warmAll, renderer, scene, camera, get focusUv() { return focusAt.clone(); }, get lampY() { return lampPos.y; }, get box() { return box; } };
 }
