@@ -219,6 +219,17 @@ def boat_planar_uv(obj):
 def boat_window_texture():
  # Four distinct interior panes sampled from the approved scene image.
  path=os.path.join(ROOT,'src','boat_window_color_256.jpg')
+ source=bpy.data.images.load(path)
+ raw=list(source.pixels);pixels=[]
+ for i in range(0,len(raw),4):
+  light=max(0.0,min(1.0,(raw[i+1]-.08)/.43))
+  shade=.34+.66*light**1.55
+  pixels.extend((raw[i]*shade,raw[i+1]*shade,raw[i+2]*shade,1))
+ image=bpy.data.images.new('boat window interior with deep shadows',width=256,height=256,alpha=True)
+ image.pixels.foreach_set(pixels)
+ path=os.path.join(ROOT,'src','boat_window_detail_256.jpg')
+ image.filepath_raw=path;image.file_format='JPEG';bpy.context.scene.render.image_settings.quality=78;image.save()
+ bpy.data.images.remove(image)
  image=bpy.data.images.load(path);image.pack()
  p=glass.node_tree.nodes.get('Principled BSDF')
  tex=glass.node_tree.nodes.new('ShaderNodeTexImage');tex.image=image
@@ -311,13 +322,15 @@ def boat():
   w=cube('raked windscreen',(x,4.705,2.47),(.72,.035,.66),glass,.014)
   window_uv(w,(i+1)%4);w.rotation_euler[0]=math.radians(12)
  for side in (-1,1):
-  o=cube('wrapped raked corner window',(side*1.24,4.52,2.47),(.34,.035,.61),glass,.01)
+  frame=cube('forward corner window frame',(side*1.24,4.52,2.47),(.62,.052,.78),dark,.012)
+  frame.rotation_euler=(math.radians(12),0,side*math.radians(42))
+  o=cube('wrapped raked corner window',(side*1.24,4.485,2.47),(.54,.044,.70),glass,.01)
   window_uv(o,3 if side<0 else 1);o.rotation_euler=(math.radians(12),0,side*math.radians(42))
  for x in (-1.33,1.33):
   for i,y in enumerate((1.49,2.32,3.15,3.98)):
-   w=cube('side window',(x,y,2.51),(.038,.72,.80),glass,.006);window_uv(w,i)
-   for edge in (-.37,.37):cube('black side window mullion',(x*1.018,y+edge,2.51),(.018,.025,.84),dark,.003)
-   for edge in (-.41,.41):cube('window horizontal frame',(x*1.018,y,2.51+edge),(.018,.76,.022),dark,.003)
+   w=cube('side window',(x,y,2.51),(.038,.64,.77),glass,.006);window_uv(w,i)
+   for edge in (-.345,.345):cube('black side window mullion',(x*1.018,y+edge,2.51),(.023,.078,.85),dark,.004)
+   for edge in (-.405,.405):cube('window horizontal frame',(x*1.018,y,2.51+edge),(.023,.72,.052),dark,.004)
  for i,x in enumerate((-.91,.91)):
   w=cube('aft corner window',(x,.949,2.49),(.49,.038,.78),glass,.006);window_uv(w,i+1)
   for edge in (-.255,.255):cube('aft window mullion',(x+edge,.925,2.49),(.019,.018,.82),dark,.003)
@@ -334,19 +347,21 @@ def boat():
    faces=[(2*j,2*j+1,2*j+3,2*j+2) if side<0 else (2*j+2,2*j+3,2*j+1,2*j) for j in range(4)]
    mesh('cabin rust drip',verts,faces,stain)
  cube('aft cabin door',(0,.93,1.94),(.75,.07,1.3),white,.025)
- ring('door porthole frame',(0,.877,2.28),.16,.022,steel,(math.pi/2,0,0),24)
- cyl('door porthole glass',(0,.870,2.28),.14,.018,glass,24,(math.pi/2,0,0))
- ball('door handle',(.26,.873,1.82),(.035,.02,.03),steel,10)
+ cube('aft cabin door dark frame',(0,.879,1.94),(.83,.035,1.38),dark,.014)
+ cube('aft cabin door worn panel',(0,.851,1.94),(.73,.032,1.27),white,.012)
+ cube('aft door lit window frame',(0,.826,2.26),(.47,.028,.43),dark,.008)
+ door_window=cube('aft door lit window',(0,.806,2.26),(.40,.028,.36),glass,.006)
+ window_uv(door_window,2)
+ ball('door handle',(.26,.813,1.82),(.035,.02,.03),steel,10)
  # Small warm roof lamp, roof safety rails, and ladder.
- cube('aft roof searchlight box',(-.98,1.20,3.34),(.36,.28,.25),steel,.025)
- cube('searchlight dark rim',(-.98,1.04,3.34),(.25,.03,.19),dark,.012)
- ball('roof lamp warm face',(-.98,1.01,3.34),(.105,.018,.092),bulb_halo,12)
- ball('roof lamp bright core',(-.98,.985,3.34),(.031,.014,.031),bulb_core,12)
+ cube('roof searchlight plinth',(-.98,1.21,3.23),(.29,.31,.18),steel,.018)
+ cyl('pale roof searchlight barrel',(-.98,1.20,3.43),.17,.70,white,20,(math.pi/2,0,0))
+ cyl('searchlight dark rim',(-.98,.84,3.43),.165,.035,dark,20,(math.pi/2,0,0))
+ cyl('roof lamp warm face',(-.98,.815,3.43),.135,.018,bulb_halo,20,(math.pi/2,0,0))
+ ball('roof lamp bright core',(-.98,.796,3.43),(.052,.014,.052),bulb_core,12)
  for x in (-1.37,1.37):
   for y in (1.13,2.72,4.35):rod('roof rail upright',(x,y,3.10),(x,y,3.51),.021,steel,8)
   rod('roof handrail',(x,1.13,3.51),(x,4.35,3.51),.024,steel,8)
- for x in (-1.1,-.65):rod('roof access ladder rail',(x,.67,1.12),(x,.67,3.15),.025,steel,8)
- for z in [1.27+i*.25 for i in range(8)]:rod('ladder rung',(-1.1,.67,z),(-.65,.67,z),.018,steel,8)
  for x in (-1.62,1.62):
   for y in (-5.8,-4.5,-3.2,-1.9,-.6,.7):rod('rail stanchion',(x,y,1.06),(x,y,1.83),.026,steel,8)
   for z,r in ((1.83,.03),(1.48,.018)):rod('side rail',(x,-5.8,z),(x,.7,z),r,steel,8)
@@ -833,7 +848,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v66.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v68.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
