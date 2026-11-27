@@ -496,6 +496,8 @@ def boat():
  # texture row around the hull. The uneven silhouettes leave navy paint between patches.
  stern_oxide_dark=mat('stern dark brown corrosion',(.15,.045,.021),.14,.94,(.19,.045,.020))
  stern_oxide_dark.node_tree.nodes.get('Principled BSDF').inputs['Emission Strength'].default_value=.32
+ stern_oxide_high=mat('upper transom dark oxide',(.11,.034,.018),.10,.96,(.14,.04,.02))
+ stern_oxide_high.node_tree.nodes.get('Principled BSDF').inputs['Emission Strength'].default_value=.25
  def hull_skin(y,z,side):
   for a,b in zip(stations[:-1],stations[1:]):
    if a[0]<=y<=b[0]:
@@ -510,32 +512,39 @@ def boat():
   return side*(w*f+.023)
  corrosion=[(-6.70,.18,.42,.19),(-6.25,.33,.35,.16),(-5.78,.10,.42,.14),
             (-5.25,.25,.40,.16),(-4.70,.04,.35,.11),(-4.17,.18,.30,.13),(-3.73,.07,.25,.09)]
+ corrosion += [(-6.78,.47,.40,.24),(-6.42,.43,.44,.24),(-6.08,.49,.35,.21)]
  for side in (-1,1):
-  vertices=[];faces=[]
-  for index,(cy,cz,ry,rz) in enumerate(corrosion):
+  for indices,paint in ((range(7),stern_oxide_dark),(range(7,len(corrosion)),stern_oxide_high)):
+   vertices=[];faces=[]
+   for index in indices:
+    cy,cz,ry,rz=corrosion[index]
     cz+=.10
     rng=random.Random(710+index*37)
     points=[]
-    for k in range(7):
-     angle=k*2*math.pi/7
-     radius=.72+.26*math.sin(angle*3+index)+rng.uniform(-.18,.18)
+    count=7 if paint==stern_oxide_dark else 11
+    for k in range(count):
+     angle=k*2*math.pi/count
+     radius=(.72+.26*math.sin(angle*3+index)+rng.uniform(-.18,.18)) if count==7 else (.72+.30*math.sin(angle*3+index)+rng.uniform(-.24,.22))
      y=max(-6.98,min(-3.35,cy+math.cos(angle)*ry*radius))
-     z=max(-.065,min(.55,cz+math.sin(angle)*rz*radius))
+     z=max(-.065,min(.78,cz+math.sin(angle)*rz*radius))
      points.append((hull_skin(y,z,side),y,z))
     centre=len(vertices);vertices.append((hull_skin(cy,cz,side),cy,cz))
     vertices.extend(points)
-    faces.extend((centre,centre+1+k,centre+1+(k+1)%7) for k in range(7))
-  mesh('broken stern corrosion',vertices,faces,stern_oxide_dark)
+    faces.extend((centre,centre+1+k,centre+1+(k+1)%count) for k in range(count))
+   mesh('broken stern corrosion',vertices,faces,paint)
  # The transom carries the same corrosion around its lower corners.
- for paint,blots in ((stern_oxide_dark,[(-.53,.18,.27,.20),(.10,.30,.30,.22),(.55,.13,.18,.18)]),):
+ for paint,blots in ((stern_oxide_dark,[(-.53,.18,.27,.20),(.10,.30,.30,.22),(.55,.13,.18,.18)]),
+                    (stern_oxide_high,[(-.52,.53,.40,.29),(-.08,.54,.45,.30),(.48,.52,.35,.28)])):
   vertices=[];faces=[]
   for index,(cx,cz,rx,rz) in enumerate(blots):
    rng=random.Random(903+index*29+int(cx*100));centre=len(vertices);vertices.append((cx,-7.028,cz))
-   for k in range(7):
-    angle=k*2*math.pi/7;radius=.76+rng.uniform(-.20,.18)
+   count=7 if paint==stern_oxide_dark else 11
+   for k in range(count):
+    angle=k*2*math.pi/count
+    radius=.76+rng.uniform(-.20,.18) if count==7 else .76+.27*math.sin(angle*3+index)+rng.uniform(-.24,.20)
     vertices.append((max(-.78,min(.78,cx+math.cos(angle)*rx*radius)),-7.028,
-                     max(-.08,min(.72,cz+math.sin(angle)*rz*radius))))
-   faces.extend((centre,centre+1+k,centre+1+(k+1)%7) for k in range(7))
+                     max(-.08,min(.79,cz+math.sin(angle)*rz*radius))))
+   faces.extend((centre,centre+1+k,centre+1+(k+1)%count) for k in range(count))
   mesh('broken transom corrosion',vertices,faces,paint)
  for side in (-1,1):
   for cy,ry in ((-6.63,.16),(-5.08,.18)):
@@ -545,6 +554,8 @@ def boat():
    mesh('worn grey waterline chip',vertices,[(0,1,2,3)],gunwale_steel)
  for x0,x1 in ((-.69,-.43),(-.22,.07),(.34,.62)):
   rod('worn grey transom boot top',(x0,-7.04,.025),(x1,-7.04,.025),.008,gunwale_steel,8)
+ for x0,x1,z in ((-.66,-.54,.48),(-.17,-.03,.62),(.43,.58,.40)):
+  rod('pale scrape on corroded transom',(x0,-7.045,z),(x1,-7.045,z+.012),.005,gunwale_steel,6)
 
 def box():
  def shell(n,lo,hi,z0,z1,m):
@@ -963,7 +974,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v86.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v87.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
