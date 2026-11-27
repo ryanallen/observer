@@ -57,7 +57,7 @@ function makeWater(renderer, scene, sky, res) {
   const uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
     mirrorSampler: { value: null }, normalSampler: { value: waterNormals() }, time: { value: 0 }, textureMatrix: { value: textureMatrix },
     eye: { value: new THREE.Vector3() }, waterColor: { value: new THREE.Color(0x010305) },
-    moonDir: { value: new THREE.Vector3() }, moonColor: { value: new THREE.Color(0.88, 0.91, 0.96) }, moonDive: { value: 0 }, sceneZoom: { value: 1 },
+    moonDir: { value: new THREE.Vector3() }, moonColor: { value: new THREE.Color(0.88, 0.91, 0.96) }, moonDive: { value: 0 }, sceneZoom: { value: 1 }, sceneCam: { value: new THREE.Vector2() },
     lampPos: { value: new THREE.Vector3() }, lampPow: { value: 1 }, screenSize: { value: new THREE.Vector2(1, 1) },
     cabinScreen: { value: new THREE.Vector2() }, lampScreen: { value: new THREE.Vector2() },
     swell: { value: SWELL.map(w => new THREE.Vector4(w.dir[0], w.dir[1], w.k, w.amp)) },
@@ -94,7 +94,7 @@ function makeWater(renderer, scene, sky, res) {
         #include <fog_vertex>
       }`,
     fragmentShader: /* glsl */`
-      uniform sampler2D mirrorSampler, normalSampler; uniform float time, lampPow, moonDive, sceneZoom; uniform vec2 screenSize, cabinScreen, lampScreen; uniform vec3 eye, waterColor, moonDir, moonColor, lampPos;
+      uniform sampler2D mirrorSampler, normalSampler; uniform float time, lampPow, moonDive, sceneZoom; uniform vec2 screenSize, cabinScreen, lampScreen, sceneCam; uniform vec3 eye, waterColor, moonDir, moonColor, lampPos;
       uniform vec4 swell[4]; uniform vec2 swellMotion[4];
       varying vec4 mirrorCoord; varying vec3 wp, swellNormal;
       #include <common>
@@ -209,7 +209,7 @@ function makeWater(renderer, scene, sky, res) {
           // Moonlight breaks into irregular soft flecks along moving crests.
           float upper = mix(smoothstep(.10, .45, screenUv.y), smoothstep(.16, .52, screenUv.y), sceneZoom);
           float width = mix(mix(.070, .055, smoothstep(.30, 1.0, screenUv.y)), mix(.025, .070, smoothstep(.30, 1.0, screenUv.y)), sceneZoom);
-          float centre = mix(.705, mix(.50, .54, smoothstep(.30, 1.0, screenUv.y)), sceneZoom);
+          float centre = mix(.705 + sceneCam.x * .12, mix(.50, .54, smoothstep(.30, 1.0, screenUv.y)), sceneZoom);
           float lane = exp(-pow((screenUv.x - centre) / width, 2.0));
           vec2 fp = mat2(.8, -.6, .6, .8) * wp.xz * vec2(6.0, 3.8);
           float facets = vnoise(fp + vec2(time * .9, -time * .6))
@@ -261,7 +261,7 @@ function makeWater(renderer, scene, sky, res) {
             float horizonSpark = moonSquiggle(gl_FragCoord.xy * vec2(.83, 1.0) + vec2(31.0, 7.0), time, horizonBand);
             col += moonColor * lane * horizonSpark * (.18 + .32 * horizonBand)
                  * smoothstep(.76, .87, screenUv.y) * (1.0 - sceneZoom);
-            float distantSheen = exp(-pow((screenUv.y - .81) / .065, 2.0));
+            float distantSheen = exp(-pow((screenUv.y - .81 - sceneCam.y * .12) / .065, 2.0));
             col += moonColor * lane * distantSheen * (.025 + .12 * fineCrest)
                  * (1.0 - sceneZoom);
           }
@@ -288,7 +288,7 @@ function makeWater(renderer, scene, sky, res) {
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
         #ifdef USE_FOG
-          float fogLane = exp(-pow((gl_FragCoord.x / screenSize.x - .705) / .075, 2.0)) * (1.0 - sceneZoom);
+          float fogLane = exp(-pow((gl_FragCoord.x / screenSize.x - .705 - sceneCam.x * .12) / .075, 2.0)) * (1.0 - sceneZoom);
           float waterFog = mix(fogDensity, .0007, fogLane);
           float fogFactor = 1.0 - exp(-waterFog * waterFog * vFogDepth * vFogDepth);
           gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
@@ -569,13 +569,13 @@ export function createBay(canvas) {
   composer.addPass(new RenderPass(scene, camera));
   const focus = new ShaderPass({
     uniforms: {
-      tDiffuse: { value: null }, tDepth: { value: null }, photoDepth: { value: null }, photoActive: { value: 0 }, sceneZoom: { value: 1 },
+      tDiffuse: { value: null }, tDepth: { value: null }, photoDepth: { value: null }, photoActive: { value: 0 }, sceneZoom: { value: 1 }, sceneCam: { value: new THREE.Vector2() },
       focusUv: { value: new THREE.Vector2(.5, .4) }, resolution: { value: new THREE.Vector2(1, 1) },
       nearClip: { value: camera.near }, farClip: { value: camera.far }, amount: { value: 1 },
     },
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `uniform sampler2D tDiffuse, tDepth, photoDepth; uniform vec2 focusUv, resolution;
-      uniform float nearClip, farClip, amount, photoActive, sceneZoom; varying vec2 vUv;
+      uniform float nearClip, farClip, amount, photoActive, sceneZoom; uniform vec2 sceneCam; varying vec2 vUv;
       float linearDepth(float z) { return nearClip * farClip / (farClip - z * (farClip - nearClip)); }
       void main() {
         vec3 sharp = texture2D(tDiffuse, vUv).rgb;
@@ -584,8 +584,10 @@ export function createBay(canvas) {
           float scale = mix(1.0, 3.1, smoothstep(0.0, 1.0, sceneZoom));
           vec2 hereUv = (vUv - .5) / scale + .5;
           vec2 focusPhotoUv = (focusUv - .5) / scale + .5;
-          float here = texture2D(photoDepth, hereUv).r;
-          float pointed = texture2D(photoDepth, focusPhotoUv).r;
+          float hereLayer = texture2D(photoDepth, hereUv).r;
+          float focusLayer = texture2D(photoDepth, focusPhotoUv).r;
+          float here = texture2D(photoDepth, hereUv - sceneCam * (.12 + .75 * hereLayer)).r;
+          float pointed = texture2D(photoDepth, focusPhotoUv - sceneCam * (.12 + .75 * focusLayer)).r;
           byDepth = smoothstep(.045, .30, abs(here - pointed));
         } else {
           float here = linearDepth(texture2D(tDepth, vUv).r);
@@ -614,13 +616,16 @@ export function createBay(canvas) {
   // Only the still shore, rocks and sky come from the sharp plate; every open
   // water pixel remains the live moving mesh. The focus pass follows it.
   const plate = new ShaderPass({
-    uniforms: { tDiffuse: { value: null }, scenery: { value: null }, stillMask: { value: null }, zoom: { value: 1 }, aspect: { value: 1.777 } },
+    uniforms: { tDiffuse: { value: null }, scenery: { value: null }, stillMask: { value: null }, depthMap: { value: null }, sceneCam: { value: new THREE.Vector2() }, zoom: { value: 1 }, aspect: { value: 1.777 } },
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: `uniform sampler2D tDiffuse, scenery, stillMask; uniform float zoom, aspect; varying vec2 vUv;
+    fragmentShader: `uniform sampler2D tDiffuse, scenery, stillMask, depthMap; uniform vec2 sceneCam; uniform float zoom, aspect; varying vec2 vUv;
       void main() {
         vec3 live = texture2D(tDiffuse, vUv).rgb;
         float scale = mix(1.0, 3.1, smoothstep(0.0, 1.0, zoom));
         vec2 uv = (vUv - vec2(.50, .50)) / scale + vec2(.50, .50);
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { gl_FragColor = vec4(live, 1.0); return; }
+        float layer = texture2D(depthMap, uv).r;
+        uv -= sceneCam * (.12 + .75 * layer);
         if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { gl_FragColor = vec4(live, 1.0); return; }
         float y = 1.0 - uv.y;
         float still = texture2D(stillMask, uv).r;
@@ -647,6 +652,7 @@ export function createBay(canvas) {
     stillMask.minFilter = THREE.LinearFilter;
     plate.uniforms.scenery.value = scenery;
     plate.uniforms.stillMask.value = stillMask;
+    plate.uniforms.depthMap.value = depthMap;
     focus.uniforms.photoDepth.value = depthMap;
     plateReady = true;
   }).catch(e => console.warn('Zoom-out scenery unavailable', e));
@@ -667,12 +673,14 @@ export function createBay(canvas) {
   // ---- view: the pointer racks focus; observing the point draws the camera in before the dive ----
   const look = { x: 0, y: 0 };
   const focusAt = new THREE.Vector2(.5, .4);
-  let pointerActive = false;
+  const viewShift = new THREE.Vector2();
+  let pointerActive = false, cameraPointerActive = false;
   // as on the moor, ordinary pointer movement only racks focus
-  const rackTo = e => { pointerActive = true; look.x = e.clientX / innerWidth * 2 - 1; look.y = e.clientY / innerHeight * 2 - 1; };
+  const rackTo = e => { pointerActive = true; cameraPointerActive = true; look.x = e.clientX / innerWidth * 2 - 1; look.y = e.clientY / innerHeight * 2 - 1; };
   addEventListener('pointermove', rackTo);
   addEventListener('pointerdown', rackTo);
-  document.addEventListener('mouseleave', () => { pointerActive = false; });
+  addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') cameraPointerActive = false; });
+  document.addEventListener('mouseleave', e => { cameraPointerActive = false; if (e.pointerType !== 'touch') pointerActive = false; });
   const st = { dive: 0, diveArmed: false, floor: 0, fade: 0, zoom: 0, zoomTarget: 0 };
   let ledDive = false;
   const tgt = new THREE.Vector3(0, HANG, 0), lampPos = new THREE.Vector3(), viewAim = new THREE.Vector3();
@@ -780,8 +788,20 @@ export function createBay(canvas) {
     // the camera
     const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const pointerEase = 1 - Math.exp(-dt * 8);
-    const wantedFocusX = pointerActive ? (look.x + 1) * .5 : .46;
-    const wantedFocusY = pointerActive ? (1 - look.y) * .5 : .52;
+    if (d === 0) {
+      const idleX = still ? 0 : Math.sin(time * .17) * .55;
+      const idleY = still ? 0 : Math.sin(time * .11 + 1.3) * .35;
+      const shiftX = cameraPointerActive ? look.x : idleX;
+      const shiftY = cameraPointerActive ? look.y : idleY;
+      const shiftEase = 1 - Math.exp(-dt * 4);
+      viewShift.x += (shiftX - viewShift.x) * shiftEase;
+      viewShift.y += (shiftY - viewShift.y) * shiftEase;
+    }
+    plate.uniforms.sceneCam.value.set(viewShift.x * .022, -viewShift.y * .014);
+    focus.uniforms.sceneCam.value.copy(plate.uniforms.sceneCam.value);
+    wu.sceneCam.value.copy(plate.uniforms.sceneCam.value);
+    const wantedFocusX = pointerActive ? (look.x + 1) * .5 : .46 + Math.sin(time * .07) * .045;
+    const wantedFocusY = pointerActive ? (1 - look.y) * .5 : .52 + Math.sin(time * .05 + 2) * .025;
     focusAt.x += (wantedFocusX - focusAt.x) * pointerEase;
     focusAt.y += (wantedFocusY - focusAt.y) * pointerEase;
     focus.uniforms.focusUv.value.copy(focusAt);
@@ -798,10 +818,18 @@ export function createBay(canvas) {
     if (surface > .999) tgt.copy(lampPos);
     else tgt.lerp(aim, Math.min(1, dt * (d > 0 ? 6 : 2)));
     camera.position.set(tgt.x + Math.cos(pitch) * Math.sin(yaw) * dist, tgt.y + Math.sin(pitch) * dist, tgt.z + Math.cos(pitch) * Math.cos(yaw) * dist);
+    const frameHeight = 2 * dist * Math.tan(camera.fov * Math.PI / 360);
+    const frameWidth = frameHeight * camera.aspect;
+    const dx = -.5 * viewShift.x * .022 * frameWidth;
+    const dy = .5 * viewShift.y * .014 * frameHeight;
+    const offsetX = Math.cos(yaw) * dx - Math.sin(pitch) * Math.sin(yaw) * dy;
+    const offsetY = Math.cos(pitch) * dy;
+    const offsetZ = -Math.sin(yaw) * dx - Math.sin(pitch) * Math.cos(yaw) * dy;
+    camera.position.x += offsetX; camera.position.y += offsetY; camera.position.z += offsetZ;
     water.position.set(camera.position.x, 0, camera.position.z);
     water.scale.setScalar(mix(4, 1, zoom));
     // the camera follows the lamp down, but stays above the water until the lamp is well under, then drops through it
-    viewAim.copy(tgt);
+    viewAim.copy(tgt).add(new THREE.Vector3(offsetX, offsetY, offsetZ));
     camera.lookAt(viewAim);
     camera.updateMatrixWorld();
     cabin.getWorldPosition(reflectionAnchor);
