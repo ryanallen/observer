@@ -227,12 +227,13 @@ def boat_window_texture():
   shade=.34+.66*light**1.55
   # Console silhouettes and a chair break up the photographic amber interior.
   desk=.62 if v<(.17+.025*math.sin(u*12+tile)) else 0.0
-  band=.72 if tile in (1,2,3) and .25<v<.34 else 0.0
+  band=.87 if tile in (1,2,3) and .24<v<(.35+.012*math.sin(u*13)) else 0.0
   upright=.56 if abs(u-(.24+.13*(tile%2)))<.035 and .20<v<.76 else 0.0
-  chair=.84 if tile==0 and abs(u-.60)<.13 and .35<v<.76 else 0.0
-  chair_head=.80 if tile==0 and ((u-.60)/.10)**2+((v-.79)/.085)**2<1 else 0.0
+  chair=.95 if tile==3 and abs(u-.57)<.13 and .38<v<.71 else 0.0
+  shoulders=.92 if tile==3 and abs(u-.57)<.23 and .31<v<.48 else 0.0
+  chair_head=.97 if tile==3 and ((u-.57)/.12)**2+((v-.74)/.10)**2<1 else 0.0
   diagonal=.52 if tile in (1,2) and abs(v-(.24+.58*u))<.043 and .2<u<.82 else 0.0
-  shade*=1-max(desk,band,upright,chair,chair_head,diagonal)
+  shade*=1-max(desk,band,upright,chair,shoulders,chair_head,diagonal)
   lamp=tile==2 and ((u-.75)/.08)**2+((v-.66)/.075)**2<1
   if lamp:pixels.extend((1.0,.75,.31,1))
   else:pixels.extend((raw[i]*shade,raw[i+1]*shade,raw[i+2]*shade,1))
@@ -860,7 +861,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v72.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v73.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
