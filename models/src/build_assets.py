@@ -23,6 +23,10 @@ steel=mat('galvanized steel',(.38,.44,.43),.75,.46);dark=mat('black rubber iron'
 orange=mat('safety orange',(.85,.16,.023),.25,.48);glass=mat('window_lit',(.40,.27,.14),.1,.20,(1,.57,.25))
 buoyred=mat('channel buoy red',(.48,.025,.018),.22,.59)
 lamp=mat('warm worklamp',(.95,.73,.32),.05,.23,(1,.69,.28))
+bulb_halo=mat('warm bulb halo',(.92,.36,.09),0,.30,(1,.40,.10))
+bulb_halo.node_tree.nodes.get('Principled BSDF').inputs['Emission Strength'].default_value=1.8
+bulb_core=mat('warm bulb bright core',(1,.72,.32),0,.22,(1,.64,.25))
+bulb_core.node_tree.nodes.get('Principled BSDF').inputs['Emission Strength'].default_value=6
 navr=mat('nav_red',(.9,.015,.01),.1,.2,(1,.015,.006));navg=mat('nav_green',(.02,.9,.12),.1,.2,(.02,1,.09));navw=mat('mast_white',(.95,.9,.75),.1,.2,(1,.9,.7))
 bronze=mat('yellow tarnished bronze',(.36,.27,.09),.83,.68);patina=mat('verdigris',(.065,.23,.17),.4,.9)
 silt=mat('silt crust',(.17,.19,.16),.1,.93);rust=mat('rusted iron',(.31,.087,.026),.5,.88);bottle=mat('cloudy bottle green',(.10,.23,.16),.1,.39)
@@ -79,6 +83,14 @@ def boat_paint_texture(material,kind,base,seed):
    wear=max(0.0,c-.66)*2.0
    if kind=='hull':
     rust=max(rust, max(0.0,.30-v)*2.2*(.4+b))
+    # Scupper and fitting runoff starts at the gunwale and reaches the side.
+    for sx,top,length,width in ((.085,.625,.25,.009),(.16,.64,.22,.007),(.27,.63,.28,.011),(.375,.635,.21,.008),(.51,.64,.27,.010),(.625,.65,.20,.009),(.695,.69,.27,.007),(.78,.72,.23,.011),(.845,.76,.26,.008)):
+     if top-length<v<top:
+      progress=(top-v)/length
+      centre=sx+.005*math.sin(v*54+sx*33)
+      taper=max(.27,1-progress*.68)
+      run=max(0,1-abs(u-centre)/(width*taper))*(.65+.5*b)
+      rust=max(rust,run*1.5)
     # Broad, broken corrosion at the stern quarter and along the aft waterline.
     # The coarse field makes a large readable shape; finer noise breaks its edge.
     for cx,cy,wu,wv in ((.045,.60,.14,.125),(.17,.54,.125,.095),(.31,.49,.10,.075),(.44,.435,.07,.05)):
@@ -91,6 +103,9 @@ def boat_paint_texture(material,kind,base,seed):
     worn=(.34,.37,.36);oxide=(.36,.14,.055);rust*=.57
     scrape=math.exp(-((v-.38)/.035)**2)*max(0,b-.43)*(2.7 if u<.55 else 1.5)
     wear=max(wear,min(.9,scrape))
+    for cx,cy,wu,wv in ((.12,.46,.04,.025),(.34,.50,.055,.027),(.59,.47,.045,.023),(.78,.52,.045,.028)):
+     bare=math.exp(-((u-cx)/wu)**2-((v-cy)/wv)**2)*max(0,(b-.32)*1.6)
+     wear=max(wear,min(.9,bare))
    elif kind=='white':
     worn=(.39,.40,.37);oxide=(.34,.17,.075);rust*=1.4
     corner=max(0,.085-min(u,1-u,v,1-v))/.085
@@ -289,8 +304,9 @@ def boat():
  cyl('door porthole glass',(0,.870,2.28),.14,.018,glass,24,(math.pi/2,0,0))
  ball('door handle',(.26,.873,1.82),(.035,.02,.03),steel,10)
  # Small warm roof lamp, roof safety rails, and ladder.
- cube('roof lamp housing',(-.95,4.32,3.17),(.12,.12,.09),dark,.012)
- ball('roof lamp warm face',(-.95,4.39,3.17),(.04,.013,.04),lamp,10)
+ cube('roof lamp housing',(-.95,1.22,3.17),(.12,.12,.09),dark,.012)
+ ball('roof lamp warm face',(-.95,1.15,3.17),(.105,.015,.105),bulb_halo,12)
+ ball('roof lamp bright core',(-.95,1.13,3.17),(.025,.014,.025),bulb_core,12)
  for x in (-1.37,1.37):
   for y in (1.13,2.72,4.35):rod('roof rail upright',(x,y,3.10),(x,y,3.51),.021,steel,8)
   rod('roof handrail',(x,1.13,3.51),(x,4.35,3.51),.024,steel,8)
@@ -360,7 +376,8 @@ def boat():
  for x in (-1.15,1.15):ball('aft work light',(x,.69,2.91),(.055,.032,.04),lamp,10)
  for x in (-.78,.78):
   cube('deck work lamp housing',(x,-6.48,2.37),(.16,.13,.11),dark,.012)
-  ball('deck_work_lamp',(x,-6.56,2.35),(.055,.024,.040),lamp,10)
+  ball('deck_work_lamp',(x,-6.56,2.35),(.125,.020,.112),bulb_halo,12)
+  ball('deck work bright core',(x,-6.588,2.35),(.027,.014,.027),bulb_core,12)
 
 def box():
  def shell(n,lo,hi,z0,z1,m):
@@ -779,7 +796,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v35.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v39.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':

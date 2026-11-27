@@ -161,16 +161,16 @@ function makeWater(renderer, scene, sky, res) {
           spec += pow(max(dot(v, reflect(-moonHigh, fine)), 0.0), 780.0) * .30;
           spec += pow(max(dot(v, reflect(-moonLow, fine)), 0.0), 780.0) * .30;
           float topThin = smoothstep(.68, .95, screenUv.y);
-          float fleck = spec * smoothstep(.23 + .15 * topThin + .22 * moonDive,
-                                         .48 + .15 * topThin + .18 * moonDive, facets) * (.30 + .70 * longCrest);
+          float fleck = spec * smoothstep(.23 + .27 * topThin + .22 * moonDive,
+                                         .48 + .27 * topThin + .18 * moonDive, facets) * (.30 + .70 * longCrest);
           float crestGlint = .3 + .7 * smoothstep(-.15, .27, wp.y);
           float topLight = .35 + 4.0 * smoothstep(.58, .80, screenUv.y)
                          - 1.0 * smoothstep(.90, 1.0, screenUv.y);
-          col += moonColor * lane * upper * fleck * crestGlint * topLight * 2.3 * (1.0 - .55 * moonDive);
-          float farFlecks = smoothstep(.38, .80, screenUv.y)
+          col += moonColor * lane * upper * fleck * crestGlint * topLight * .9 * (1.0 - .55 * moonDive);
+          float farFlecks = smoothstep(.18, .70, screenUv.y)
                            * smoothstep(.34 + .12 * topThin + .16 * moonDive,
                                         .58 + .12 * topThin + .15 * moonDive, facets) * (.25 + .75 * longCrest);
-          col += moonColor * lane * farFlecks * .60 * (1.0 - .55 * moonDive);
+          col += moonColor * lane * farFlecks * 1.6 * (1.0 - .55 * moonDive);
           float submergedLamp = 1.0 - step(-0.1, lampPos.y);
           float shallowLamp = submergedLamp * exp(-max(-lampPos.y, 0.0) * .16);
           float underTransmission = shallowLamp * exp(-dot(wp.xz - lampPos.xz, wp.xz - lampPos.xz) / 1.2);
@@ -282,14 +282,23 @@ export function createBay(canvas) {
   const lamp = new THREE.Group();
   const cage = new THREE.MeshStandardMaterial({ color: 0x303739, roughness: .62, metalness: .75 });
   const topCap = new THREE.Mesh(new THREE.CylinderGeometry(.09, .10, .06, 20), cage); topCap.position.y = .20; lamp.add(topCap);
-  const glass = new THREE.Mesh(new THREE.SphereGeometry(.18, 24, 16), new THREE.MeshBasicMaterial({ color: 0xf0b979, transparent: true, opacity: .4, depthWrite: false, toneMapped: false })); lamp.add(glass);
-  const bulb = new THREE.Mesh(new THREE.SphereGeometry(.15, 24, 16), new THREE.MeshBasicMaterial({ color: 0xe9aa68, toneMapped: false }));
-  lamp.add(bulb);
+  const globe = new THREE.Mesh(new THREE.SphereGeometry(.18, 32, 24), new THREE.ShaderMaterial({
+    uniforms: { core: { value: new THREE.Color().setRGB(1.6, .8, .28) }, rim: { value: new THREE.Color().setRGB(1.25, .42, .08) } },
+    vertexShader: `varying vec3 n, v; void main() { vec4 p = modelViewMatrix * vec4(position, 1.0); n = normalize(normalMatrix * normal); v = normalize(-p.xyz); gl_Position = projectionMatrix * p; }`,
+    fragmentShader: `uniform vec3 core, rim; varying vec3 n, v; void main() {
+      float face = max(dot(normalize(n), normalize(v)), 0.0);
+      float centre = smoothstep(.08, .95, face);
+      vec3 col = mix(rim, core, centre) * (1.0 + .10 * centre * centre);
+      gl_FragColor = vec4(col, 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+  })); lamp.add(globe);
   const lampLight = new THREE.PointLight(LAMP_COLOR, 30, 0, 2); lamp.add(lampLight);
   const spot = new THREE.SpotLight(LAMP_COLOR, 0, 0, .75, 1.0, 1.6); spot.position.y = -.25; lamp.add(spot); lamp.add(spot.target); spot.target.position.set(0, -10, 0);
   lamp.scale.setScalar(1.7);
   scene.add(lamp);
-  const cable = new THREE.Mesh(new THREE.CylinderGeometry(.012, .012, 1, 6), new THREE.MeshStandardMaterial({ color: 0x8a8f94, roughness: .35, metalness: .9 }));
+  const cable = new THREE.Mesh(new THREE.CylinderGeometry(.012, .012, 1, 6), new THREE.MeshStandardMaterial({ color: 0x9b8e7a, roughness: .55, metalness: .25 }));
   scene.add(cable);
 
   // under the water: the lamp's cone and the snow drifting through it
@@ -526,7 +535,7 @@ export function createBay(canvas) {
     const under = smooth(.4, -1.2, lampPos.y);
     const deep = smooth(-4, -30, lampPos.y) * (1 - smooth(0, .55, fl));   // nothing left but the lamp
     const camUnder = camera.position.y < 0 ? 1 : 0;
-    lampLight.intensity = mix(12, 6, under) * (1 - deep * .75);
+    lampLight.intensity = mix(20, 6, under) * (1 - deep * .75);
     lampLight.distance = 0;
     spot.intensity = under * mix(160, 60, deep) * (1 - smooth(.2, 1, fl) * .9);
     coneMat.uniforms.amt.value = under * (1 - deep * .55);
