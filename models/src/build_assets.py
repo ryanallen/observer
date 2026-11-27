@@ -28,6 +28,7 @@ cooler_enamel=mat('worn white cooler enamel',(.91,.90,.87),.05,.53)
 drum_steel=mat('pale grey cable drum steel',(.54,.56,.58),.60,.40)
 cable_steel=mat('pale wound steel cable',(.64,.65,.66),.62,.39)
 orange=mat('safety orange',(.85,.16,.023),.25,.48);glass=mat('window_lit',(.40,.27,.14),.1,.20,(1,.57,.25))
+aframe_orange=mat('chipped bright orange A frame',(.91,.45,.17),.25,.65)
 buoyred=mat('channel buoy red',(.48,.025,.018),.22,.59)
 lamp=mat('warm worklamp',(.95,.73,.32),.05,.23,(1,.69,.28))
 bulb_halo=mat('warm bulb halo',(.92,.36,.09),0,.30,(1,.40,.10))
@@ -55,6 +56,9 @@ def ball(n,loc,sc,m,seg=12):
  bpy.ops.mesh.primitive_uv_sphere_add(segments=seg,ring_count=8,location=loc);o=bpy.context.object;o.name=n;o.scale=sc;o.data.materials.append(m);return o
 def rod(n,a,b,r,m,seg=10):
  a=Vector(a);b=Vector(b);d=b-a;o=cyl(n,(a+b)*.5,r,d.length,m,seg);o.rotation_euler=d.to_track_quat('Z','Y').to_euler();return o
+def square_beam(n,a,b,width,depth,m):
+ a=Vector(a);b=Vector(b);d=b-a;o=cube(n,(a+b)*.5,(width,depth,d.length),m,.012)
+ o.rotation_euler=d.to_track_quat('Z','Y').to_euler();return o
 def ring(n,loc,r,t,m,rot=None,seg=20):
  bpy.ops.mesh.primitive_torus_add(major_segments=seg,minor_segments=6,location=loc,major_radius=r,minor_radius=t)
  o=bpy.context.object;o.name=n;o.data.materials.append(m)
@@ -63,7 +67,7 @@ def ring(n,loc,r,t,m,rot=None,seg=20):
 
 def boat_paint_texture(material,kind,base,seed):
  """Bake compact weathered paint into a JPEG the glTF exporter can embed."""
- size={'white':256,'roof':256,'hull':320,'orange':192,'red':192,'steel':192}[kind];rng=random.Random(seed)
+ size={'white':256,'roof':256,'hull':320,'orange':192,'aframe':192,'red':192,'steel':192}[kind];rng=random.Random(seed)
  grids=[]
  for n in (12,48,192):grids.append((n,[rng.random() for _ in range(n*n)]))
  def noise(u,v,grid):
@@ -74,14 +78,14 @@ def boat_paint_texture(material,kind,base,seed):
  drips=[(rng.random(),rng.uniform(.65,.87) if kind=='white' else rng.uniform(.57,.82),rng.uniform(.27,.56) if kind=='white' else rng.uniform(.12,.38),rng.uniform(.010,.022) if kind=='white' else rng.uniform(.003,.011)) for _ in range(18 if kind=='hull' else 28 if kind=='white' else 10)]
  if kind=='hull':drips += [((y+7)/14,.72,.27,.013) for y in (-5.1,-2.3,.65,3.7)]
  pixels=[];orm=[]
- rough={'hull':.83,'white':.85,'roof':.84,'deck':.16,'orange':.79,'steel':.63,'red':.88}[kind]
- metal={'hull':.24,'white':.06,'roof':.08,'deck':.21,'orange':.22,'steel':.58,'red':.12}[kind]
+ rough={'hull':.83,'white':.85,'roof':.84,'deck':.16,'orange':.79,'aframe':.72,'steel':.63,'red':.88}[kind]
+ metal={'hull':.24,'white':.06,'roof':.08,'deck':.21,'orange':.22,'aframe':.25,'steel':.58,'red':.12}[kind]
  for j in range(size):
   v=j/(size-1)
   for i in range(size):
    u=i/(size-1);a=noise(u,v,grids[0]);b=noise(u,v,grids[1]);c=noise(u,v,grids[2]);grain=(a-.5)*.26+(b-.5)*.19+(c-.5)*.08
    rust=0.0;patch_rust=0.0
-   if kind in ('hull','white','roof','orange','red'):
+   if kind in ('hull','white','roof','orange','aframe','red'):
     for x,top,length,width in drips:
      du=min(abs(u-x),1-abs(u-x))
      if top-length<v<top:
@@ -125,7 +129,7 @@ def boat_paint_texture(material,kind,base,seed):
     worn=(.21,.22,.21);oxide=(.23,.15,.09);rust=max(0.0,b-.68)*.28
     path=max(0,1-abs(u-.42)/.12)*(.30+.4*a)
     wear=max(wear,path*.42)
-   elif kind=='orange':
+   elif kind in ('orange','aframe'):
     worn=(.57,.47,.27);oxide=(.29,.12,.05)
     wear=max(wear,max(0,c-.62)*1.8)
    elif kind=='red':
@@ -236,9 +240,9 @@ def window_uv(obj,tile=0):
 
 def boat():
  white.name='weathered offwhite superstructure';navy_hull.name='survey hull textured blue paint'
- for material,kind,base,seed in ((white,'white',(1.0,.98,.92),11),(roof,'roof',(.48,.51,.55),19),(navy,'hull',(.09,.185,.31),12),(navy_hull,'hull',(.09,.185,.31),12),(red,'red',(.17,.045,.026),16),(orange,'orange',(.75,.245,.048),14),(steel,'steel',(.31,.33,.31),15)):
+ for material,kind,base,seed in ((white,'white',(1.0,.98,.92),11),(roof,'roof',(.48,.51,.55),19),(navy,'hull',(.09,.185,.31),12),(navy_hull,'hull',(.09,.185,.31),12),(red,'red',(.17,.045,.026),16),(orange,'orange',(.75,.245,.048),14),(aframe_orange,'aframe',(.91,.45,.17),23),(steel,'steel',(.31,.33,.31),15)):
   boat_paint_texture(material,kind,base,seed)
- boat_normal_texture((white,roof,navy,navy_hull,orange,steel))
+ boat_normal_texture((white,roof,navy,navy_hull,orange,aframe_orange,steel))
  boat_window_texture()
  # +Y in Blender becomes -Z in the GLB, toward the bow.
  coarse=[(-7,.68,.82,.84),(-6.4,1.36,1.53,.91),(-4.8,1.70,1.94,.99),(-2,1.80,2.04,1.06),(1,1.67,1.91,1.14),(3.6,1.40,1.67,1.29),(5.5,.90,1.12,1.53),(6.7,.19,.27,1.76),(6.95,.016,.025,1.86)]
@@ -335,12 +339,12 @@ def boat():
   for y in (-4.7,-2.5,.1):ring('tyre fender',(x*1.03,y,.54),.34,.105,dark,(0,math.pi/2,0))
  # Parallel legs stand on the transom corners and lean aft by ~15 degrees.
  for x in (-.71,.71):
-  rod('straight safety orange A frame leg',(x,-6.87,1.0),(x,-7.74,4.26),.074,orange,12)
+  square_beam('chipped square orange A frame leg',(x,-6.87,1.0),(x,-7.74,4.26),.30,.26,aframe_orange)
   rod('hydraulic ram barrel',(x*1.25,-5.25,1.15),(x,-7.27,2.77),.072,dark,16)
   rod('chromed hydraulic piston',(x,-7.27,2.77),(x,-7.39,3.04),.045,steel,14)
   ball('ram hinge',(x*1.25,-5.25,1.15),(.13,.13,.13),steel,12)
   ball('ram hinge',(x,-7.39,3.04),(.10,.10,.10),steel,12)
- rod('horizontal A frame crossbeam',(-.78,-7.74,4.26),(.78,-7.74,4.26),.078,orange,12)
+ square_beam('horizontal A frame crossbeam',(-.78,-7.74,4.26),(.78,-7.74,4.26),.25,.25,aframe_orange)
  rod('sheave hanger',(0,-7.74,4.26),(0,-7.74,4.05),.06,steel)
  cyl('sheave cheeks',(0,-7.74,3.96),.23,.27,steel,24,(0,math.pi/2,0))
  cyl('sheave wheel',(0,-7.74,3.96),.16,.30,dark,24,(0,math.pi/2,0))
@@ -812,7 +816,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v55.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v56.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
