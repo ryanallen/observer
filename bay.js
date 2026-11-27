@@ -126,7 +126,11 @@ function makeWater(renderer, scene, sky, res) {
           float longCrest = pow(max(sin(longPhase), 0.0), 5.0);
           float wavelets = pow(max(dot(v, reflect(-moonDir, n)), 0.0), 35.0);
           float crestNoise = smoothstep(.34, .68, vnoise(wp.xz * vec2(2.7, 6.1) + vec2(time * .16, -time * .24)));
+          float sideFade = exp(-pow((screenUv.x - .52) / .40, 2.0));
+          float fineCrest = smoothstep(.45, .70, vnoise(wp.xz * vec2(5.0, 8.0) + vec2(time * .12, -time * .18)));
+          float swellSheen = longCrest * fineCrest * sideFade;
           vec3 col = waterColor + vec3(.006, .007, .008) * longCrest
+                   + vec3(.012, .012, .012) * swellSheen
                    + vec3(.006, .0075, .009) * wavelets * crestNoise;
           // The cabin and cable lamp each carry a long, fading column through the moving swell.
           vec3 bright = max(refl - vec3(.07), 0.0) * .22;
