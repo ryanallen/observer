@@ -283,12 +283,22 @@ def boat():
    y0,ch0,w0,h0=a;y1,ch1,w1,h1=b
    rod('black rubbing strake',(side*w0,y0,h0-.10),(side*w1,y1,h1-.10),.048,dark,8)
   forward=[s for s in stations if s[0]>=1.0]
+  def bow_rise(y):return max(0.0,min(1.0,(y-2.5)/4.1))
+  def bow_edge(s):
+   y,ch,w,h=s;r=bow_rise(y)
+   return (side*w*(1.10+.08*r),y,h+.44+.30*r)
   for a,b in zip(forward[:-1],forward[1:]):
    y0,ch0,w0,h0=a;y1,ch1,w1,h1=b
-   mesh('forward bulwark',[(side*w0,y0,h0),(side*w1,y1,h1),(side*w1*1.10,y1,h1+.44),(side*w0*1.10,y0,h0+.44)],[(0,1,2,3)] if side==1 else [(3,2,1,0)],navy)
+   mesh('forward bulwark',[(side*w0,y0,h0),(side*w1,y1,h1),bow_edge(b),bow_edge(a)],[(0,1,2,3)] if side==1 else [(3,2,1,0)],navy)
   for a,b in zip(forward[:-1],forward[1:]):
-   y0,ch0,w0,h0=a;y1,ch1,w1,h1=b
-   rod('raised bow gunwale',(side*w0*1.10,y0,h0+.44),(side*w1*1.10,y1,h1+.44),.018,steel,8)
+   rod('raised bow gunwale',bow_edge(a),bow_edge(b),.040,steel,8)
+  rail_stations=[min(forward,key=lambda s:abs(s[0]-y)) for y in (3.0,4.0,5.0,5.9,6.6,6.95)]
+  rail_points=[]
+  for s in rail_stations:
+   x,y,z=bow_edge(s);top=(x,y,z+.25)
+   rod('bow guardrail upright',(x,y,z),top,.032,steel,8)
+   rail_points.append(top)
+  for a,b in zip(rail_points[:-1],rail_points[1:]):rod('bow guardrail',a,b,.032,antenna_metal,8)
   for y in (1.8,2.8,3.8,4.8):
    s=min(stations,key=lambda q:abs(q[0]-y));sy,ch,w,h=s
    cube('bulwark scupper',(side*(w*1.004),sy,h+.09),(.017,.24,.085),dark,.01)
@@ -823,7 +833,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v57.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v66.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
