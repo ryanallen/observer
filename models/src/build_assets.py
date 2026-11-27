@@ -266,9 +266,13 @@ def boat():
   window_uv(o,3 if side<0 else 1);o.rotation_euler=(math.radians(12),0,side*math.radians(42))
  for x in (-1.33,1.33):
   for i,y in enumerate((1.49,2.32,3.15,3.98)):
-   w=cube('side window',(x,y,2.47),(.038,.64,.58),glass,.006);window_uv(w,i)
-   for edge in (-.33,.33):cube('black side window mullion',(x*1.018,y+edge,2.47),(.018,.025,.64),dark,.003)
-   for edge in (-.30,.30):cube('window horizontal frame',(x*1.018,y,2.47+edge),(.018,.68,.022),dark,.003)
+   w=cube('side window',(x,y,2.51),(.038,.72,.80),glass,.006);window_uv(w,i)
+   for edge in (-.37,.37):cube('black side window mullion',(x*1.018,y+edge,2.51),(.018,.025,.84),dark,.003)
+   for edge in (-.41,.41):cube('window horizontal frame',(x*1.018,y,2.51+edge),(.018,.76,.022),dark,.003)
+ for i,x in enumerate((-.91,.91)):
+  w=cube('aft corner window',(x,.949,2.49),(.49,.038,.78),glass,.006);window_uv(w,i+1)
+  for edge in (-.255,.255):cube('aft window mullion',(x+edge,.925,2.49),(.019,.018,.82),dark,.003)
+  for edge in (-.40,.40):cube('aft window horizontal frame',(x,.925,2.49+edge),(.53,.018,.02),dark,.003)
  stain=mat('cabin rust runoff',(.22,.095,.047),.05,.94)
  for side in (-1,1):
   for i,y in enumerate((1.13,1.89,2.75,3.64,4.37)):
@@ -775,7 +779,7 @@ bpy.context.scene.view_settings.view_transform='AgX'
 bpy.context.scene.view_settings.look='AgX - Medium High Contrast'
 bpy.context.scene.view_settings.exposure=-1.1 if NAME in ('box','seabed') else -.3
 bpy.context.scene.render.resolution_percentage=100;bpy.context.scene.render.image_settings.file_format='PNG'
-preview=os.path.join(ROOT,'preview','boat_v31.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
+preview=os.path.join(ROOT,'preview','boat_v32.png' if NAME=='boat' else NAME+'.png');os.makedirs(os.path.dirname(preview),exist_ok=True)
 bpy.context.scene.render.filepath=preview;bpy.ops.render.render(write_still=True)
 print('ASSET_PREVIEW',preview)
 if NAME=='boat':
