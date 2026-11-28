@@ -15,7 +15,7 @@
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
 body { font-family: Cormorant, Georgia, serif; -webkit-font-smoothing: antialiased; cursor: default; user-select: none; -webkit-user-select: none; touch-action: none; }
 canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-#bay, #lab { opacity: 0; }
+#bay, #lab, #study { opacity: 0; }
 .cap { position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%); width: min(92vw, 760px); text-align: center;
   font-style: italic; font-weight: 400; font-size: clamp(20px, 2.6vw, 30px); line-height: 1.35; letter-spacing: .01em;
   opacity: 0; transition: opacity 1.4s ease; pointer-events: none; text-shadow: 0 0 18px #000; text-wrap: balance; }
@@ -74,6 +74,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 <body>
 <canvas id="bay"></canvas>
 <canvas id="lab"></canvas>
+<canvas id="study"></canvas>
 <canvas id="c"></canvas>
 <div class="cap" id="cap"></div>
 <div class="place" id="place"></div>
@@ -109,6 +110,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     out: 0,           // the view pulling out of the glasses into Blake's study, 0 to 1
     clear: 0,         // the ring clearing it on a later heartbeat, 0 to 1
     lab: 0,           // the lab is showing
+    study: 0,         // Blake's study is showing
     pt: 0,            // the point's visibility
     py: .5,           // its height on screen, as a fraction
     lines: 0,         // how far the converging lines have drawn
@@ -136,10 +138,13 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b61')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b62')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
-  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b61')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b62')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  // ---- Blake's study: loaded while the iris video plays, shown once the view has pulled out of the field glasses ----
+  let study = null, studyLoad = null;
+  const loadStudy = () => studyLoad || (studyLoad = import('./study.js?v=' + (q0.get('v') || 'b62')).then(m => { study = m.createStudy($('study')); window.observerStudy = study; return study.ready.then(() => study); }).catch(e => { console.warn('study', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
@@ -447,7 +452,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     return { vid, ep, wide, outline };
   })());
   // the field glasses' near lens in the close photograph, and the same lens on the desk in the wide one (pixels of 1672 x 941)
-  const EP = { x: 833, y: 470, r: 160 }, WIDE = { x: 827, y: 485, r: 6.5 };   // study_wide_fullbleed_b, the near eyepiece
+  const EP = { x: 838, y: 470, r: 115 }, WIDE = { x: 827, y: 485, r: 6.5 };   // study_wide_fullbleed_b, the near eyepiece
   const burstLines = Array.from({ length: 36 }, (_, i) => ({ a: i / 36 * Math.PI * 2 + Math.random() * .2, sp: .9 + Math.random() * .7, trail: [] }));
   // where a 1672 x 941 photograph shows when it covers the screen
   const coverOf = () => { const sc = Math.max(W / 1672, H / 941); return { sc, ox: (W - 1672 * sc) / 2, oy: (H - 941 * sc) / 2 }; };
@@ -512,7 +517,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       }
     }
     // her eye: the video, covering the screen; its last frame has the pupil (and the steeple in it) centred
-    if (S.vid > 0) {
+    if (S.vid > 0 && !(S.study > 0)) {
       g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
       const vsc = Math.max(W / 960, H / 540), vw = 960 * vsc, vh = 540 * vsc;
       const pupilR = .24 * vh, cx2 = W / 2, cy2 = H / 2;
@@ -587,7 +592,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     const pointDy = openingCam.y * H * .0015 * openingDepth;
     const eyeDx = openingCam.x * W * .003 * openingDepth;
     const eyeDy = openingCam.y * H * .0025 * openingDepth;
-    if (lab && S.lab > 0) {
+    if (study && S.study > 0) {
+      study.render(dt);
+      g.clearRect(0, 0, W, H);
+    } else if (lab && S.lab > 0) {
       lab.render(dt);
       const p = lab.st.lift > 0 ? lab.stoneScreen() : lab.screen(); cx = p.x; cy = p.y;   // the ping rides with the stone as it lifts
       g.clearRect(0, 0, W, H);
@@ -835,6 +843,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     if (e.pointerType === 'mouse') { mouse.x = e.clientX; mouse.y = e.clientY; mouse.on = true; }
     // the pointer racks the bay's focus
     if (bay) { bay.look.x = Math.max(-1, Math.min(1, e.clientX / W * 2 - 1)); bay.look.y = Math.max(-1, Math.min(1, e.clientY / H * 2 - 1)); }
+    if (study) study.setPointer(Math.max(-1, Math.min(1, e.clientX / W * 2 - 1)), Math.max(-1, Math.min(1, e.clientY / H * 2 - 1)));
     if (lab) lab.setPointer(Math.max(-1, Math.min(1, e.clientX / W * 2 - 1)), Math.max(-1, Math.min(1, e.clientY / H * 2 - 1)));
   });
   document.addEventListener('mouseleave', () => { mouse.on = false; });
@@ -885,6 +894,13 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     // nothing but the way in; its click is what lets a browser play the sound
     const b = $('begin'); await wait(400); b.classList.add('on'); b.focus({ preventScroll: true });
     if (q0.get('at') === 'bay') { b.remove(); S.pt = 1; skipping = false; loadBay(); await bayScene(); return; }
+    if (q0.get('at') === 'iris') {   // for tests: from the end of the iris video through the pull-out into the study
+      b.remove(); S.pt = 0; skipping = false; p4Ready = await loadP4(); loadStudy(); await loadStudy();
+      P4vid().currentTime = 2.99; S.vid = 1; await wait(800);
+      window.__irisGo = true; await tween('flick', 1, 600, k => k); await wait(500); await tween('out', 1, 5200, k => k);
+      study.render(0); $('study').style.opacity = 1; S.study = 1; return;
+    }
+    if (q0.get('at') === 'study') { b.remove(); S.pt = 0; skipping = false; if (await loadStudy()) { $('study').style.opacity = 1; S.study = 1; } return; }
     if (q0.get('at') === 'lab') { b.remove(); S.pt = 1; S.bay = 1; S.dark = 1; skipping = false; if (await loadLab()) await labScene(); return; }
     await new Promise(res => b.addEventListener('click', e => { e.stopPropagation(); if (want) { startSound(); play('tremble'); } loadBay(); res(); }, { once: true }));
     b.blur(); b.classList.add('tremble'); await wait(500);
@@ -1059,6 +1075,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     await tween('vid', 1, 400);
     // the lab is done: let it go
     S.lab = 0; S.pt = 0; release('blake'); lab.dispose(); $('lab').remove(); lab = null; window.observerLab = null;
+    loadStudy();
     await P4vid().play().catch(() => {});
     await new Promise(r => { const v = P4vid(); if (v.ended) r(); else { v.addEventListener('ended', r, { once: true }); setTimeout(r, 3600); } });
     // the steeple in her pupil flickers, fast, in and out with the field glasses' lens, then holds on the glasses
@@ -1066,6 +1083,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     await wait(500);
     // the view pulls out of the glasses into Blake's study
     await tween('out', 1, 5200, k => k);
+    // the study, live: the pointer shifts the view a little and racks the focus, as on the moor
+    if (await loadStudy()) { study.render(0); $('study').style.opacity = 1; S.study = 1; }
     release('iris');
   }
 })();
