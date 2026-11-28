@@ -274,7 +274,7 @@ export function createLab(canvas, opts = {}) {
         vec3 base = texture2D(tDiffuse, vUv).rgb; float dz = texture2D(tDepth, vUv).x;
         farAway = dz >= .99999 ? 1.0 : 0.0; if (farAway > .5) dz = .9999;
         float here = -perspectiveDepthToViewZ(dz, near, far), pointed = -perspectiveDepthToViewZ(texture2D(tDepth, focusUv).x, near, far);
-        blurAt = max(smoothstep(.012, .07, abs(here - pointed) / pointed) * .9, smoothstep(.07, .34, abs(vUv.y - focusUv.y))) * amount * 6.0;   // gentler than the room's own: the painting is already soft where it should be
+        blurAt = max(smoothstep(.012, .07, abs(here - pointed) / pointed) * .9, smoothstep(.07, .34, abs(vUv.y - focusUv.y))) * amount * 6.0 * min(1.0, min(resolution.x, resolution.y) / 800.0);   // gentler than the room's own: the painting is already soft where it should be
         vec4 vpos = invProj * vec4(vUv * 2.0 - 1.0, dz * 2.0 - 1.0, 1.0); vpos /= vpos.w; vec3 w = (camWorld * vpos).xyz;
         vec4 a = wA > 0.0 ? lay(w, pA, dA, vpA, vA, rA) : vec4(0.0), b = wB > 0.0 ? lay(w, pB, dB, vpB, vB, rB) : vec4(0.0);
         // the live box, where a plate has none: the painting gives way to it (its mask softened by a pixel, as the frame is)
@@ -349,8 +349,8 @@ export function createLab(canvas, opts = {}) {
       const key = keys[k] = { cam: keyCamera(cj), cj, tex: null, depth: null, range: cj.depthRange || [cj.near, cj.far] };
       // where the room has a plate without the box (lamp-on, open, firing), the box is the live 3D one, opening on its
       // hinges over the plate; the painting with the box in it is the fallback
-      // (asked for only where the camera says its plate exists; ?livebox tries the plates being made)
-      const plain = ['a', 'open', 'c'].includes(k) && (cj.nobox || opts.liveBox) ? await tl.loadAsync((cj.nobox ? base : 'models/web/proj_box/') + k + '_nobox.webp').catch(() => null) : null;
+      // (asked for only where the camera says its plate exists)
+      const plain = cj.nobox ? await tl.loadAsync(base + k + '_nobox.webp').catch(() => null) : null;
       const painted = await tl.loadAsync(base + k + '_paint.webp').catch(() => null);
       key.liveBox = !!(plain && painted); key.tex = key.liveBox ? plain : painted; key.texBox = key.liveBox ? painted : null; if (!key.tex) return;
       if (key.texBox) { key.texBox.minFilter = THREE.LinearFilter; key.texBox.generateMipmaps = false; }
@@ -384,7 +384,7 @@ export function createLab(canvas, opts = {}) {
   // the pointer's shift, as a share of the window kept solid: the view is that much smaller than the window on each side,
   // and slides at most that far (about 2% of the frame)
   const SHIFT_ROOM = .045;
-  const frameKey = (key, sx = 0, sy = 0) => {
+  const frameKey = (key, sx = 0, sy = 0, win = null) => {
     const cj = key.cj, sol = cj.solid, aS = W / H;
     if ((!key.win || key.winAspect !== aS) && cj.core) {
       // a wide painting (room all through, the original composition at "core" inside it): the view holds the whole
@@ -433,7 +433,7 @@ export function createLab(canvas, opts = {}) {
       key.win = { cx, cy, hx: hx * (1 - SHIFT_ROOM), hy: hy * (1 - SHIFT_ROOM), mx: hx * SHIFT_ROOM, my: hy * SHIFT_ROOM }; key.winAspect = aS;
     }
     // the shift slides the view inside the window, never past it
-    const { hx, hy, mx, my } = key.win, cx = key.win.cx + Math.max(-1, Math.min(1, sx)) * mx, cy = key.win.cy + Math.max(-1, Math.min(1, sy)) * my;
+    const wn = win || key.win, { hx, hy, mx, my } = wn, cx = wn.cx + Math.max(-1, Math.min(1, sx)) * mx, cy = wn.cy + Math.max(-1, Math.min(1, sy)) * my;
     const T = new THREE.Matrix4().set(1 / hx, 0, 0, -cx / hx, 0, 1 / hy, 0, -cy / hy, 0, 0, 1, 0, 0, 0, 0, 1);
     return T.multiply(key.cam.projectionMatrix.clone());
   };
@@ -450,7 +450,7 @@ export function createLab(canvas, opts = {}) {
         float here = viewZ(vUv), pointed = viewZ(focusUv);
         // how far in front of or behind the point in focus, as a share of the distance, plus the miniature's band
         float blur = max(smoothstep(.012, .07, abs(here - pointed) / pointed) * .9, smoothstep(.07, .34, abs(vUv.y - focusUv.y))) * amount;
-        vec2 px = vec2(1.0) / resolution * blur * 12.0;
+        vec2 px = vec2(1.0) / resolution * blur * 12.0 * min(1.0, min(resolution.x, resolution.y) / 800.0);   // a small screen shows less room per pixel: less blur
         float turn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
         vec3 soft = vec3(0.0);
         for (int i = 0; i < 16; i++) { float a = float(i) * 2.39996323 + turn, r = sqrt((float(i) + .5) / 16.0); soft += texture2D(tDiffuse, vUv + px * r * vec2(cos(a), sin(a))).rgb; }
@@ -487,6 +487,29 @@ export function createLab(canvas, opts = {}) {
       vec3 acc = vec3(0.0); for (int i = 0; i < 14; i++) { float f = float(i) / 13.0; vec2 q = shown + (vUv - shown) * (1.0 - eyeBlur * .35 * f), p = eyeAt + (q - shown) / (1.0 + 26.0 * zoom * zoom); acc += texture2D(tDiffuse, p + vec2(amt * (f - .5), 0.0)).rgb; }
       gl_FragColor = vec4(acc / 14.0, 1.0); }` });
   turnBlur.enabled = false; composer.addPass(turnBlur);
+  // the pull back: the last frame before it, shrinking into its place in the wide view and fading
+  const dissolve = new ShaderPass({ uniforms: { tDiffuse: { value: null }, tSnap: { value: null }, at: { value: new THREE.Vector4(.5, .5, .5, .5) }, alpha: { value: 0 } },
+    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform sampler2D tDiffuse, tSnap; uniform vec4 at; uniform float alpha; varying vec2 vUv; void main() {
+      vec3 c = texture2D(tDiffuse, vUv).rgb; vec2 q = (vUv - at.xy) / at.zw + .5;
+      vec2 e = min(q, 1.0 - q); float inside = smoothstep(0.0, .02, min(e.x, e.y));
+      gl_FragColor = vec4(mix(c, texture2D(tSnap, q).rgb, alpha * inside), 1.0); }` });
+  dissolve.enabled = false; composer.addPass(dissolve);
+  // the pull back's state: where the last frame from the lamp-lit camera sits in C's view, and that frame itself
+  const pull = { rect: null, snap: null, win: null };
+  const pullZ = () => { const t = THREE.MathUtils.smoothstep(st.wide, 0, 1); return t; }
+  // where A's view (as framed now) lands in C's painting: its corners carried out to the table's distance and seen by C
+  const pullRect = () => {
+    const ka = keys.a, kc = keys.c, Pa = frameKey(ka, view.x, -view.y), inv = Pa.clone().invert(), d = stone ? ka.cam.position.distanceTo(stone.position) : 18;
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(ka.cam.quaternion);
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    for (const [x, y] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const v = new THREE.Vector3(x, y, .5).applyMatrix4(inv).applyMatrix4(ka.cam.matrixWorld), dir = v.sub(ka.cam.position).normalize();
+      const pt = ka.cam.position.clone().addScaledVector(dir, d / dir.dot(fwd)).applyMatrix4(kc.cam.matrixWorldInverse).applyMatrix4(kc.cam.projectionMatrix);
+      x0 = Math.min(x0, pt.x); x1 = Math.max(x1, pt.x); y0 = Math.min(y0, pt.y); y1 = Math.max(y1, pt.y);
+    }
+    return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, hx: (x1 - x0) / 2, hy: (y1 - y0) / 2, mx: 0, my: 0 };
+  };
 
   // Ruth: her own model, loaded just before the swing, standing at the worktable across from where the orbit ends, leaning
   // on it in her 'lean' pose. Until that pose is in her model, the orbit ends on her photograph instead
@@ -538,6 +561,14 @@ export function createLab(canvas, opts = {}) {
   const toScreen = p => { v3.copy(p).project(camera); return { x: (v3.x * .5 + .5) * W, y: (-v3.y * .5 + .5) * H }; };
 
   const render = dt => {
+    // the pull back starts: one last frame from the lamp-lit camera, kept, and where it sits in C's view
+    if (st.wide > 0 && !pull.rect && keys.a && keys.a.tex && keys.c && keys.c.tex && st.swing <= 0 && !capture.depth) {
+      const w = st.wide; st.wide = 0; render(0); st.wide = w;
+      const pr = renderer.getPixelRatio(), sw = Math.round(W * pr), sh = Math.round(H * pr);
+      if (!pull.snap || pull.snap.image.width !== sw || pull.snap.image.height !== sh) { if (pull.snap) pull.snap.dispose(); pull.snap = new THREE.FramebufferTexture(sw, sh); }
+      renderer.setRenderTarget(null); renderer.copyFramebufferToTexture(pull.snap); pull.rect = pullRect();
+    }
+    if (st.wide <= 0 && pull.rect) pull.rect = null;
     time += dt;
     // the pointer shifts the view a little, as on the moor: the camera itself moves, so near things move more than far
     const idleX = Math.sin(time * .17) * .55, idleY = Math.sin(time * .11 + 1.3) * .35, ease = 1 - Math.exp(-dt * 4);
@@ -551,12 +582,18 @@ export function createLab(canvas, opts = {}) {
       camera.fov = fovBase; camera.near = dist * .6; camera.far = dist * 1.6; camera.clearViewOffset(); orbit = null; if (box) box.visible = true;
       // resting on a painting: its own camera, framed to its solid part; for the firing, over to frame C's
       if (keys.a && keys.a.tex) {
-        const ka = keys.a, kc = keys.c && keys.c.tex ? keys.c : null, k = kc ? st.wide * st.wide * (3 - 2 * st.wide) : 0;
-        camera.position.copy(ka.cam.position); camera.quaternion.copy(ka.cam.quaternion);
-        const P = frameKey(ka, view.x, -view.y);
-        if (kc && k > 0) { camera.position.lerp(kc.cam.position, k); camera.quaternion.slerp(kc.cam.quaternion, k); const Pc = frameKey(kc, view.x, -view.y); for (let i = 0; i < 16; i++) P.elements[i] += (Pc.elements[i] - P.elements[i]) * k; }
-        camera.near = (kc ? ka.cj.near + (kc.cj.near - ka.cj.near) * k : ka.cj.near); camera.far = (kc ? ka.cj.far + (kc.cj.far - ka.cj.far) * k : ka.cj.far);
-        framedP = P;
+        const ka = keys.a, kc = keys.c && keys.c.tex ? keys.c : null;
+        if (kc && st.wide > 0 && pull.rect) {
+          // the pull back to the whole lab: C's own camera, its view opening out from where the last frame sat in it to its
+          // rest; that last frame shrinks into its place over it and fades (see the dissolve pass)
+          frameKey(kc); const z = pullZ(), r = pull.rect, w = kc.win;
+          const win = { cx: r.cx + (w.cx - r.cx) * z, cy: r.cy + (w.cy - r.cy) * z, hx: r.hx + (w.hx - r.hx) * z, hy: r.hy + (w.hy - r.hy) * z, mx: w.mx * z, my: w.my * z };
+          camera.position.copy(kc.cam.position); camera.quaternion.copy(kc.cam.quaternion); camera.near = kc.cj.near; camera.far = kc.cj.far;
+          framedP = frameKey(kc, view.x, -view.y, win); pull.win = win;
+        } else {
+          camera.position.copy(ka.cam.position); camera.quaternion.copy(ka.cam.quaternion); camera.near = ka.cj.near; camera.far = ka.cj.far;
+          framedP = frameKey(ka, view.x, -view.y);
+        }
       } else if (st.wide > 0 && keys.c) { const k = st.wide * st.wide * (3 - 2 * st.wide), c = keys.c.cam;
         camera.position.lerp(c.position, k); camera.quaternion.slerp(c.quaternion, k); camera.fov += (keys.c.cj.fov - camera.fov) * k;
         camera.near += (keys.c.cj.near - camera.near) * k; camera.far += (keys.c.cj.far - camera.far) * k; }
@@ -596,7 +633,10 @@ export function createLab(canvas, opts = {}) {
       if (k > 0) {
         camera.position.lerp(endKey.cam.position, k); camera.quaternion.slerp(endKey.cam.quaternion, k);
         const P = frameKey(endKey, view.x, -view.y);   // framed to its solid part, as at every beat
-        if (k >= 1) { camera.near = endKey.cj.near; camera.far = endKey.cj.far; camera.projectionMatrix.copy(P); camera.projectionMatrixInverse.copy(P).invert(); }
+        // the lens eases into the painting's own framing as the camera lands, so its edge (and the black past it) never shows
+        camera.near = endKey.cj.near; camera.far = endKey.cj.far; camera.updateProjectionMatrix();
+        const e = camera.projectionMatrix.elements; for (let i = 0; i < 16; i++) e[i] += (P.elements[i] - e[i]) * k;
+        camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
       }
     }
     camera.updateMatrixWorld();
@@ -651,7 +691,7 @@ export function createLab(canvas, opts = {}) {
       depthCopy.uniforms.tDepth.value = composer.readBuffer.depthTexture; proj.uniforms.tDepth.value = depthCopyRT.texture; proj.uniforms.invProj.value.copy(camera.projectionMatrixInverse); proj.uniforms.camWorld.value.copy(camera.matrixWorld);
       for (const k of ['near', 'far', 'amount']) proj.uniforms[k].value = focus.uniforms[k].value; proj.uniforms.focusUv.value.copy(focus.uniforms.focusUv.value); proj.uniforms.resolution.value.copy(focus.uniforms.resolution.value);
       // which painting each beat rests on
-      const sw = THREE.MathUtils.smoothstep(st.swing, .35, .95), before = 1 - THREE.MathUtils.smoothstep(st.swing, .15, .75), wide = THREE.MathUtils.smoothstep(st.wide, .6, 1);
+      const sw = THREE.MathUtils.smoothstep(st.swing, .35, .95), before = 1 - THREE.MathUtils.smoothstep(st.swing, .15, .75), wide = pull.rect && st.wide > 0 ? 1 : THREE.MathUtils.smoothstep(st.wide, .6, 1);
       const want = [['a', (1 - st.lamp) * (1 - wide) * before], ['open', st.lamp * (1 - wide) * before], ['c', wide * before], [ruth && keys.b2 ? 'b2' : 'b', sw]]
         .filter(([k, w]) => w > 0 && keys[k] && keys[k].tex).sort((x, y) => y[1] - x[1]);
       setSlot('A', want[0] && keys[want[0][0]], want[0] ? want[0][1] : 0); setSlot('B', want[1] && keys[want[1][0]], want[1] ? want[1][1] : 0);
@@ -672,7 +712,14 @@ export function createLab(canvas, opts = {}) {
       scene.overrideMaterial = depthMat; scene.background = new THREE.Color(0); renderer.toneMapping = THREE.NoToneMapping; halo.visible = false;
       renderer.setRenderTarget(null); renderer.render(scene, camera);
       scene.overrideMaterial = old; scene.background = bg; renderer.toneMapping = tm; halo.visible = true;
-    } else composer.render(dt);
+    } else {
+      // the last frame before the pull back, over the wide view where it sits in it, fading as the view opens
+      dissolve.enabled = !!(pull.rect && pull.win && st.wide > 0 && st.wide < 1);
+      if (dissolve.enabled) { const r = pull.rect, w = pull.win, u = dissolve.uniforms;
+        u.tSnap.value = pull.snap; u.at.value.set(.5 + .5 * (r.cx - w.cx) / w.hx, .5 + .5 * (r.cy - w.cy) / w.hy, r.hx / w.hx, r.hy / w.hy);
+        u.alpha.value = 1 - THREE.MathUtils.smoothstep(st.wide, .02, .24); }
+      composer.render(dt);
+    }
   };
 
   // the page's helpers, as the plate lab has them
@@ -714,7 +761,7 @@ export function createLab(canvas, opts = {}) {
     scene.traverse(o => { if (o.geometry) o.geometry.dispose(); for (const m of [].concat(o.material || [])) { for (const k in m) if (m[k] && m[k].isTexture) m[k].dispose(); m.dispose(); } });
     if (plate.uniforms.reverse.value) plate.uniforms.reverse.value.dispose();
     haloTex.dispose(); halo.material.dispose(); beam.geometry.dispose(); beamMat.dispose(); photonSprites.forEach(sp => sp.material.dispose()); if (scene.environment) scene.environment.dispose();
-    rt.dispose(); depthCopyRT.dispose(); boxRT.dispose(); boxUvRT.dispose(); boxMaskMat.dispose(); boxUvMat.dispose(); composer.dispose(); renderer.dispose(); renderer.forceContextLoss();
+    if (pull.snap) pull.snap.dispose(); rt.dispose(); depthCopyRT.dispose(); boxRT.dispose(); boxUvRT.dispose(); boxMaskMat.dispose(); boxUvMat.dispose(); composer.dispose(); renderer.dispose(); renderer.forceContextLoss();
   };
   // for the projection test: frames with no blur, and the depth seen from the same camera
   const capture = { sharp: false, depth: null, noStone: false };
