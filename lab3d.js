@@ -135,8 +135,9 @@ export function createLab(canvas, opts = {}) {
       top.getWorldPosition(stoneFrom); stone.position.copy(stoneFrom); stone.attach(top);
     }
     if (nodes.stone_hang) nodes.stone_hang.getWorldPosition(stoneHang); else stoneHang.copy(stoneFrom);
-    // it rises clear of the open crown and hangs well above it, where it can be seen
-    stoneHang.y = Math.max(stoneHang.y, stoneFrom.y + .42);
+    // it hangs where the room's stone_hang has it (where the paintings show it); a room without one lifts it clear of
+    // the open crown
+    if (!nodes.stone_hang) stoneHang.y = Math.max(stoneHang.y, stoneFrom.y + .42);
     // the lamp: a spot down from the bulb onto the table, and its soft spill
     const bulb = new THREE.Vector3(); (nodes.lamp_bulb || room).getWorldPosition(bulb);
     lampSpot.position.copy(bulb); lampSpot.target.position.copy(bulb).add(new THREE.Vector3(.3, -1, .1)); lampGlow.position.copy(bulb).add(new THREE.Vector3(0, .05, 0));
@@ -338,9 +339,15 @@ export function createLab(canvas, opts = {}) {
   // open; c: the firing, seen from far out; b: the end of the swing). Each is laid back on the room from its own camera;
   // the two that weigh most this frame fill the pass's two slots
   const keys = {};
-  const keyCamera = cj => { const c = new THREE.PerspectiveCamera(); c.matrixAutoUpdate = false; c.matrixWorldAutoUpdate = false; c.matrixWorld.fromArray(cj.matrixWorld);
-    c.matrixWorldInverse.copy(c.matrixWorld).invert(); c.projectionMatrix.fromArray(cj.projectionMatrix); c.projectionMatrixInverse.copy(c.projectionMatrix).invert();
-    c.position.fromArray(cj.position); c.quaternion.fromArray(cj.quaternion); c.fov = cj.fov; return c; };
+  // a key frame's camera: its matrices as saved, or (from a Blender render) built from position, quaternion, vertical fov,
+  // the frame's size and near/far, all in the room's own coordinates (y up, as the glb has them)
+  const keyCamera = cj => {
+    const c = new THREE.PerspectiveCamera(cj.fov, cj.width / cj.height, cj.near || .1, cj.far || 100); c.matrixAutoUpdate = false; c.matrixWorldAutoUpdate = false;
+    c.position.fromArray(cj.position); c.quaternion.fromArray(cj.quaternion);
+    if (cj.matrixWorld) c.matrixWorld.fromArray(cj.matrixWorld); else c.matrixWorld.compose(c.position, c.quaternion, new THREE.Vector3(1, 1, 1));
+    c.matrixWorldInverse.copy(c.matrixWorld).invert();
+    if (cj.projectionMatrix) c.projectionMatrix.fromArray(cj.projectionMatrix); else { c.updateProjectionMatrix(); cj.projectionMatrix = c.projectionMatrix.toArray(); }
+    c.projectionMatrixInverse.copy(c.projectionMatrix).invert(); return c; };
   const loadProjection = async (base = 'models/web/proj/', names = ['a', 'open', 'c', 'b', ...(opts.ruth3d ? ['b2'] : [])]) => {
     const tl = new THREE.TextureLoader(), get = u => fetch(u).then(r => r.ok ? r.json() : null).then(j => typeof j === 'string' ? JSON.parse(j) : j).catch(() => null);
     await ready;
@@ -355,6 +362,8 @@ export function createLab(canvas, opts = {}) {
       key.liveBox = !!(plain && painted); key.tex = key.liveBox ? plain : painted; key.texBox = key.liveBox ? painted : null; if (!key.tex) return;
       if (key.texBox) { key.texBox.minFilter = THREE.LinearFilter; key.texBox.generateMipmaps = false; }
       key.tex.minFilter = THREE.LinearFilter; key.tex.generateMipmaps = false;
+      // sent to the GPU now, not on the beat that first shows it (a 2080 px painting is a 40 ms stall)
+      renderer.initTexture(key.tex); if (key.texBox) renderer.initTexture(key.texBox);
       key.depth = new THREE.WebGLRenderTarget(cj.width, cj.height, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter }); keyDepth(key);
       key.vp = new THREE.Matrix4().multiplyMatrices(key.cam.projectionMatrix, key.cam.matrixWorldInverse);
     }));
@@ -386,12 +395,15 @@ export function createLab(canvas, opts = {}) {
   const SHIFT_ROOM = .045;
   const frameKey = (key, sx = 0, sy = 0, win = null) => {
     const cj = key.cj, sol = cj.solid, aS = W / H;
-    if ((!key.win || key.winAspect !== aS) && cj.core) {
+    // a painting with no mask is room all through: framed as a wide one whose whole canvas is its composition
+    const core = cj.core || (!sol && [0, 0, cj.width, cj.height]);
+    if ((!key.win || key.winAspect !== aS) && core) {
       // a wide painting (room all through, the original composition at "core" inside it): the view holds the whole
       // original where the screen's shape allows, and otherwise the most of it that fits inside the painting with room
       // for the shift, centred on the beat's subject
-      const [ox, oy, cw, ch] = cj.core, aP = cj.width / cj.height;
-      let hx = Math.max(cw, ch * aS) / cj.width, hy = hx * aP / aS;
+      const [ox, oy, cw, ch] = core, aP = cj.width / cj.height;
+      // (fit 'cover': the core always fills the screen, cropped to its shape, for a painting whose outside is dark)
+      let hx = (cj.fit === 'cover' ? Math.min(cw, ch * aS) : Math.max(cw, ch * aS)) / cj.width, hy = hx * aP / aS;
       const E = .985, k = Math.min(1, E / (hx * (1 + SHIFT_ROOM)), E / (hy * (1 + SHIFT_ROOM))); hx *= k; hy *= k;
       const fx = cj.focus ? cj.focus[0] / cj.width * 2 - 1 : (ox + cw / 2) / cj.width * 2 - 1, fy = cj.focus ? 1 - cj.focus[1] / cj.height * 2 : 1 - (oy + ch / 2) / cj.height * 2;
       // the original's own centre where it is all shown, sliding toward the subject as the view closes in
@@ -497,6 +509,11 @@ export function createLab(canvas, opts = {}) {
   dissolve.enabled = false; composer.addPass(dissolve);
   // the pull back's state: where the last frame from the lamp-lit camera sits in C's view, and that frame itself
   const pull = { rect: null, snap: null, win: null };
+  const keepSnap = () => {
+    const pr = renderer.getPixelRatio(), sw = Math.round(W * pr), sh = Math.round(H * pr);
+    if (!pull.snap || pull.snap.image.width !== sw || pull.snap.image.height !== sh) { if (pull.snap) pull.snap.dispose(); pull.snap = new THREE.FramebufferTexture(sw, sh); }
+    renderer.setRenderTarget(null); renderer.copyFramebufferToTexture(pull.snap);
+  };
   const pullZ = () => { const t = THREE.MathUtils.smoothstep(st.wide, 0, 1); return t; }
   // where A's view (as framed now) lands in C's painting: its corners carried out to the table's distance and seen by C
   const pullRect = () => {
@@ -528,12 +545,19 @@ export function createLab(canvas, opts = {}) {
 ` + sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
  float fres = pow(1.0 - clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0), 3.0); totalEmissiveRadiance += vec3(.25, .4, .9) * fres * ruthRim * .3;`); };
       o.material.needsUpdate = true; });
-    ruth.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; o.frustumCulled = false; } if (!ruthHead && /head|spine\.?006/i.test(o.name)) ruthHead = o; });
+    // she throws no shadow map of her own: under her painting it never shows, and a skinned shadow costs its own shaders mid-swing
+    ruth.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; o.frustumCulled = false; } if (!ruthHead && /head|spine\.?006/i.test(o.name)) ruthHead = o; });
     // her real height, 1.70 m, whatever units the model is in
     const bb = new THREE.Box3().setFromObject(ruth), h = bb.max.y - bb.min.y || 1; ruth.scale.multiplyScalar(1.7 / h);
     if (lean) { ruthMixer = new THREE.AnimationMixer(ruth); const a = ruthMixer.clipAction(lean); a.play(); a.paused = true; a.time = lean.duration; ruthMixer.update(0); }
     scene.add(ruth); placeRuth();
     for (const k of ['b2', 'ruth']) if (keys[k] && keys[k].depth) keyDepth(keys[k]);
+    // her shaders made now, while the machine fires, not on the frame she comes into view (a 300 ms stall)
+    // (made for the frame's own render target, whose colour space is the one they are drawn in)
+    const prevRT = renderer.getRenderTarget(); renderer.setRenderTarget(composer.renderTarget1);
+    ruth.visible = true; const done = renderer.compileAsync ? renderer.compileAsync(scene, camera) : Promise.resolve(renderer.compile(scene, camera)); ruth.visible = false;
+    renderer.setRenderTarget(prevRT);
+    return done.catch(() => {});
   }).catch(() => loadPlate()));
   // where she stands: her model is made for its place in this room, root on the floor at (0, 0.09) unturned; its lean
   // puts her hands on the worktable and turns her to the stone
@@ -542,6 +566,7 @@ export function createLab(canvas, opts = {}) {
     ruth.position.set(0, 0, .09); ruth.rotation.set(0, 0, 0); ruth.updateMatrixWorld(true);
   };
 
+  let shadowsOnce = false;
   let frameW = VIEW.width, dist = 30, coverX = 1, coverY = 1, fovBase = VIEW.fov, framedP = null;
   const resize = () => {
     W = canvas.clientWidth || innerWidth; H = canvas.clientHeight || innerHeight;
@@ -562,11 +587,10 @@ export function createLab(canvas, opts = {}) {
 
   const render = dt => {
     // the pull back starts: one last frame from the lamp-lit camera, kept, and where it sits in C's view
+    // (kept from the frame before when the stone has lifted, so the start costs nothing; otherwise drawn once more now)
     if (st.wide > 0 && !pull.rect && keys.a && keys.a.tex && keys.c && keys.c.tex && st.swing <= 0 && !capture.depth) {
-      const w = st.wide; st.wide = 0; render(0); st.wide = w;
-      const pr = renderer.getPixelRatio(), sw = Math.round(W * pr), sh = Math.round(H * pr);
-      if (!pull.snap || pull.snap.image.width !== sw || pull.snap.image.height !== sh) { if (pull.snap) pull.snap.dispose(); pull.snap = new THREE.FramebufferTexture(sw, sh); }
-      renderer.setRenderTarget(null); renderer.copyFramebufferToTexture(pull.snap); pull.rect = pullRect();
+      if (!pull.fresh) { const w = st.wide; st.wide = 0; render(0); st.wide = w; keepSnap(); }
+      pull.rect = pull.fresh || pullRect(); pull.fresh = null;
     }
     if (st.wide <= 0 && pull.rect) pull.rect = null;
     time += dt;
@@ -687,6 +711,10 @@ export function createLab(canvas, opts = {}) {
     const pushOnPicture = st.swing >= 1 && st.eyeZoom > 0;
     turnBlur.uniforms.zoom.value = pushOnPicture ? st.eyeZoom : 0; turnBlur.uniforms.eyeBlur.value = pushOnPicture ? st.eyeBlur : 0; if (pushOnPicture) { const q = eyeScreen(); turnBlur.uniforms.eyeAt.value.set(q.x / W, 1 - q.y / H); }
     turnBlur.enabled = (st.swing > .02 && st.swing < .98) || pushOnPicture;
+    // resting on the paintings, nothing shows the live shadows (the paintings carry their own): they are drawn once and
+    // kept, and only redrawn while the camera swings through the live room (half the frame's draws)
+    renderer.shadowMap.autoUpdate = !proj.enabled || (st.swing > 0 && st.swing < 1);
+    if (proj.enabled && !shadowsOnce) { renderer.shadowMap.needsUpdate = true; shadowsOnce = true; }
     if (proj.enabled) {
       depthCopy.uniforms.tDepth.value = composer.readBuffer.depthTexture; proj.uniforms.tDepth.value = depthCopyRT.texture; proj.uniforms.invProj.value.copy(camera.projectionMatrixInverse); proj.uniforms.camWorld.value.copy(camera.matrixWorld);
       for (const k of ['near', 'far', 'amount']) proj.uniforms[k].value = focus.uniforms[k].value; proj.uniforms.focusUv.value.copy(focus.uniforms.focusUv.value); proj.uniforms.resolution.value.copy(focus.uniforms.resolution.value);
@@ -704,7 +732,10 @@ export function createLab(canvas, opts = {}) {
       if ((la || lb) && box && !capture.depth) { drawBoxMask(); proj.uniforms.tBox.value = boxRT.texture; proj.uniforms.tBoxUv.value = boxUvRT.texture; }
     }
     // for paintings of the room alone: the stone, its halo, the beam and photons left out (they are drawn live over them)
-    if (stone) stone.visible = !capture.noStone; halo.visible = !capture.noStone && halo.visible; if (capture.noStone) { beamMat.opacity = 0; photonSprites.forEach(sp => sp.material.opacity = 0); }
+    // landing on Ruth's painting, the stone is the painted one: the live stone and its halo give way as the camera lands
+    const paintedStone = st.swing > 0 && ruth && keys.b2 && keys.b2.tex, landed = paintedStone ? THREE.MathUtils.smoothstep(st.swing, .82, .96) : 0;
+    if (landed > 0) halo.material.opacity *= 1 - landed;
+    if (stone) stone.visible = !capture.noStone && landed < 1; halo.visible = !capture.noStone && halo.visible; if (capture.noStone) { beamMat.opacity = 0; photonSprites.forEach(sp => sp.material.opacity = 0); }
     if (capture.depth) {
       // for painting over: each pixel's distance from the camera, white near to black far, between the near and far set
       const old = scene.overrideMaterial, bg = scene.background, tm = renderer.toneMapping;
@@ -718,7 +749,11 @@ export function createLab(canvas, opts = {}) {
       if (dissolve.enabled) { const r = pull.rect, w = pull.win, u = dissolve.uniforms;
         u.tSnap.value = pull.snap; u.at.value.set(.5 + .5 * (r.cx - w.cx) / w.hx, .5 + .5 * (r.cy - w.cy) / w.hy, r.hx / w.hx, r.hy / w.hy);
         u.alpha.value = 1 - THREE.MathUtils.smoothstep(st.wide, .02, .24); }
+      // its shader is made on the first frame of the room, not in the middle of the beat (that cost a 130 ms stall)
+      if (!pull.warm && proj.enabled) { pull.warm = true; if (!dissolve.enabled) { dissolve.enabled = true; dissolve.uniforms.alpha.value = 0; } if (!turnBlur.enabled) { turnBlur.enabled = true; turnBlur.uniforms.amt.value = 0; turnBlur.uniforms.zoom.value = 0; turnBlur.uniforms.eyeBlur.value = 0; } }
       composer.render(dt);
+      // once the stone hangs, each frame is kept: the pull back may start on the next
+      if (st.wide <= 0 && st.lift > .98 && st.swing <= 0 && keys.a && keys.a.tex && keys.c && keys.c.tex) { keepSnap(); pull.fresh = pullRect(); } else if (st.wide <= 0) pull.fresh = null;
     }
   };
 
