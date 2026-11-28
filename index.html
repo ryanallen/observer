@@ -160,13 +160,15 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     lab: 'lab', open: 'lab', machine: 'lab', swing: 'lab', steeple: 'lab', iris: 'lab' };
   let ff = !!SCENE_OF[AT] && !['bay', 'lab'].includes(AT);   // running ahead to the beat
   const mark = name => { if (ff && name === AT) ff = false; };
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b65')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b67')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
-  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b65')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  // ?lab=3d: the lab as a real 3D room (lab3d.js), with ?room= naming its model while it is being made
+  const lab3d = q0.get('lab') === '3d';
+  const loadLab = () => labLoad || (labLoad = import((lab3d ? './lab3d.js?v=' : './lab.js?v=') + (q0.get('v') || 'b67')).then(m => { lab = m.createLab($('lab'), lab3d ? { room: q0.get('room') || 'models/web/lab_room.glb', view: q0.get('view') } : undefined); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
   // ---- Blake's study: loaded while the iris video plays, shown once the view has pulled out of the field glasses ----
   let study = null, studyLoad = null;
-  const loadStudy = () => studyLoad || (studyLoad = import('./study.js?v=' + (q0.get('v') || 'b65')).then(m => { study = m.createStudy($('study')); window.observerStudy = study; return study.ready.then(() => study); }).catch(e => { console.warn('study', e); return null; }));
+  const loadStudy = () => studyLoad || (studyLoad = import('./study.js?v=' + (q0.get('v') || 'b67')).then(m => { study = m.createStudy($('study')); window.observerStudy = study; return study.ready.then(() => study); }).catch(e => { console.warn('study', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
@@ -392,6 +394,11 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   let nextPhoton = 0;
   // the same lights cast on the room, handed to the lab's plate each frame
   const castLights = () => {
+    // the 3D room: the monitor's screen and the eight indicators glow for real
+    if (lab.is3d) {
+      const ind = Array.from({ length: 8 }, (_, i) => ease01((S.bench * 8 - i) * 2.5) * (.82 + .18 * Math.sin(t * (3 + i) + i * 1.7)));
+      lab.setMachine(S.monitor < 1 ? (Math.sin(t * 61) > .2 ? 1 : .25) * S.monitor : 1, ind); return;
+    }
     const L = [];
     BENCH.forEach(([x, y, c], i) => {
       const on = ease01((S.bench * BENCH.length - i) * 2.5); if (!on) return;
@@ -413,15 +420,16 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     if (lab && S.lab > 0) castLights();
     if (!lab || (S.bench <= 0 && !(lab.st.lift > 0))) return;
     g.save(); g.globalCompositeOperation = 'lighter';
-    BENCH.forEach(([x, y, c], i) => {
-      const on = ease01((S.bench * BENCH.length - i) * 2.5); if (!on) return;
-      const flick = .82 + .18 * Math.sin(t * (3 + i) + i * 1.7), p = lab.plateToScreen(x, y), col = c === 'g' ? '120,255,150' : '255,190,90';
+    (lab.is3d ? Array.from({ length: 8 }, (_, i) => [0, 0, (i + 1) % 3 === 0 ? 'g' : 'a', 'indicator_' + (i + 1)]) : BENCH).forEach(([x, y, c, node], i, all) => {
+      const on = ease01((S.bench * all.length - i) * 2.5); if (!on) return;
+      const flick = .82 + .18 * Math.sin(t * (3 + i) + i * 1.7), p = node ? lab.nodeScreen(node) : lab.plateToScreen(x, y), col = c === 'g' ? '120,255,150' : '255,190,90';
+      if (!p) return;
       const gr = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, 9);
       gr.addColorStop(0, `rgba(${col},${.9 * on * flick})`); gr.addColorStop(.25, `rgba(${col},${.35 * on * flick})`); gr.addColorStop(1, `rgba(${col},0)`);
       g.fillStyle = gr; g.beginPath(); g.arc(p.x, p.y, 9, 0, 7); g.fill();
     });
     // the monitor: a dim screen glow that flickers on, a few dots on it
-    if (S.monitor > 0) {
+    if (S.monitor > 0 && !lab.is3d) {
       const f = S.monitor < 1 ? (Math.sin(t * 61) > .2 ? 1 : .25) * S.monitor : 1;
       const q = MONITOR.map(([x, y]) => lab.plateToScreen(x, y));
       g.fillStyle = `rgba(90,170,140,${.13 * f})`; g.beginPath(); q.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)); g.closePath(); g.fill();
@@ -441,7 +449,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     // the photons: one bright spark at a time with a short trail, from the laser's aperture to the stone, 3 to 6 a second
     if (S.firing) {
       if (t >= nextPhoton) { photons.push({ t0: t }); nextPhoton = t + 1 / (3 + Math.random() * 3); }
-      const from = lab.plateToScreen(...LASER), to = lab.stoneScreen(), fly = .28;
+      const from = lab.is3d ? lab.nodeScreen('laser_exit') : lab.plateToScreen(...LASER), to = lab.stoneScreen(), fly = .28;
       for (let i = photons.length - 1; i >= 0; i--) {
         const k = (t - photons[i].t0) / fly;
         if (k >= 1) { photons.splice(i, 1); lab.st.flash = 1; continue; }
