@@ -17,8 +17,6 @@ const OPEN_ANGLE = .72;   // the panels tipped out into a crown, as wide as in t
 // the diorama camera: from the south-west, high and far, looking down at the worktable with the windows up to the left and
 // the photon bench behind; a long lens for the miniature look
 const VIEW = { dir: new THREE.Vector3(-Math.sin(.66) * Math.cos(.7), Math.sin(.7), Math.cos(.66) * Math.cos(.7)), target: new THREE.Vector3(.05, .76, .7), width: 8.2, fov: 14 };
-// walls and ceiling cut away so the room shows from above
-const CUT = /^(wall_south|wall_west|ceiling|skirting_(s|w)|picture_rail_(s|w)|conduit_w)/;
 // Ruth's side, her photograph: where the stone hangs in it, how wide it shows (75 mm), where her eye is
 const REV = { w: 1672, h: 941, stone: { x: 853, y: 290 }, stoneW: 98, eye: { x: 557, y: 152 } };
 
@@ -30,6 +28,10 @@ export function createLab(canvas, opts = {}) {
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, mobile ? 1.5 : 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.75;
+  // the diorama's cut: everything west of x -3.55 m, south of z 2.55 m and above 3.3 m is not drawn (the near walls, what
+  // hangs on them, and the ceiling); off while the camera orbits inside the room
+  const cut = [new THREE.Plane(new THREE.Vector3(1, 0, 0), 3.55), new THREE.Plane(new THREE.Vector3(0, 0, -1), 2.55), new THREE.Plane(new THREE.Vector3(0, -1, 0), 3.3)];
+  renderer.clippingPlanes = cut;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   let W = 1, H = 1;
 
@@ -73,13 +75,11 @@ export function createLab(canvas, opts = {}) {
       if (o.name) nodes[o.name] = o;
       if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
       // the desk lamp's own parts throw no shadow from its bulb (the shade would lay a dark band across the table)
-      if (o.isMesh) for (let p = o; p; p = p.parent) if (/^lamp_/.test(p.name)) { o.castShadow = false; break; }
+      if (o.isMesh && /^(lab_lamp|lamp_bulb_glass)/.test(o.material.name)) o.castShadow = false;
     });
-    room.traverse(o => { if (o.name && (CUT.test(o.name) || /^ceiling_light/.test(o.name))) o.visible = false; });
+    // the ceiling, the south and west walls and whatever hangs on them are cut away by position (clipping planes set on
+    // the renderer), so nothing depends on the model's part names
     scene.add(room); room.updateMatrixWorld(true);
-    // whatever hangs on the walls that are cut away (a whiteboard, a radiator, a coat rail) goes with them, so nothing floats
-    const bb = new THREE.Box3(), c = new THREE.Vector3();
-    room.traverse(o => { if (!o.isMesh) return; bb.setFromObject(o).getCenter(c); if (c.x < -3.55 || c.z > 2.55 || c.y > 3.3) o.visible = false; });
     box = nodes.box_cd || null;
     for (let i = 1; i <= 7; i++) { const h = nodes['hinge_' + i]; if (h) hinges.push({ o: h, base: h.quaternion.clone() }); }
     // the bulb's glass glows only while the lamp is on; off, it is a dark bulb that throws nothing back
@@ -217,19 +217,38 @@ export function createLab(canvas, opts = {}) {
   const fg = new THREE.Scene(), fgPass = new RenderPass(fg, camera); fgPass.clear = false; fgPass.clearDepth = true; composer.addPass(fgPass);
   composer.addPass(new OutputPass());
 
-  let reverseLoad = null;
-  const loadReverse = () => reverseLoad || (reverseLoad = new THREE.TextureLoader().loadAsync('models/web/lab_reverse.webp').then(t => {
+  // Ruth: her own model, loaded just before the swing, standing at the worktable across from where the orbit ends, leaning
+  // on it in her 'lean' pose. Until that pose is in her model, the orbit ends on her photograph instead
+  let reverseLoad = null, ruth = null, ruthHead = null, ruthMixer = null;
+  const loadPlate = () => new THREE.TextureLoader().loadAsync('models/web/lab_reverse.webp').then(t => {
     t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; plate.uniforms.reverse.value = t;
-  }));
+  });
+  const loadReverse = () => reverseLoad || (reverseLoad = loader.loadAsync('models/web/ruth.glb').then(g => {
+    const lean = g.animations.find(a => /lean/i.test(a.name));
+    if (!lean && !opts.ruth3d) return loadPlate();
+    ruth = g.scene; ruth.visible = false;
+    ruth.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; o.frustumCulled = false; } if (!ruthHead && /head|spine\.006/i.test(o.name)) ruthHead = o; });
+    // her real height, 1.70 m, whatever units the model is in
+    const bb = new THREE.Box3().setFromObject(ruth), h = bb.max.y - bb.min.y || 1; ruth.scale.multiplyScalar(1.7 / h);
+    if (lean) { ruthMixer = new THREE.AnimationMixer(ruth); const a = ruthMixer.clipAction(lean); a.play(); a.paused = true; a.time = lean.duration; ruthMixer.update(0); }
+    scene.add(ruth);
+  }).catch(() => loadPlate()));
+  // where she stands: across the box from the end of the orbit, a little to the camera's left, facing the stone
+  const placeRuth = yawEnd => {
+    if (!ruth || !stone) return;
+    const fx = Math.sin(yawEnd), fz = Math.cos(yawEnd);
+    ruth.position.set(stone.position.x - fx * .55 - fz * .28, 0, stone.position.z - fz * .55 + fx * .28);
+    ruth.rotation.set(0, yawEnd, 0); ruth.updateMatrixWorld(true);
+  };
 
-  let frameW = VIEW.width, dist = 30, coverX = 1, coverY = 1;
+  let frameW = VIEW.width, dist = 30, coverX = 1, coverY = 1, fovBase = VIEW.fov;
   const resize = () => {
     W = canvas.clientWidth || innerWidth; H = canvas.clientHeight || innerHeight;
     renderer.setSize(W, H, false); composer.setSize(W, H);
     const pr = renderer.getPixelRatio(); focus.uniforms.resolution.value.set(W, H); bloom.resolution.set(W * pr / 2, H * pr / 2);
     camera.aspect = W / H;
     // the same width of room on any screen; a tall screen sees more floor
-    camera.fov = 2 * Math.atan(Math.tan(VIEW.fov * Math.PI / 360) * Math.max(1, 1.4 / camera.aspect)) * 180 / Math.PI;
+    camera.fov = fovBase = 2 * Math.atan(Math.tan(VIEW.fov * Math.PI / 360) * Math.max(1, 1.4 / camera.aspect)) * 180 / Math.PI;
     frameW = VIEW.width; dist = frameW / 2 / (Math.tan(camera.fov * Math.PI / 360) * camera.aspect);
     const a = W / H, pa = REV.w / REV.h; coverX = a > pa ? 1 : a / pa; coverY = a > pa ? pa / a : 1; plate.uniforms.cover.value.set(coverX, coverY);
   };
@@ -251,22 +270,27 @@ export function createLab(canvas, opts = {}) {
     if (st.swing <= 0 || !stone) {
       camera.position.copy(base).addScaledVector(right, sx).addScaledVector(up, sy);
       camera.up.set(0, 1, 0); camera.lookAt(VIEW.target.clone().addScaledVector(right, sx * .35).addScaledVector(up, sy * .35));
-      camera.near = dist * .6; camera.far = dist * 1.6; camera.clearViewOffset(); orbit = null; if (box) box.visible = true;
+      camera.fov = fovBase; camera.near = dist * .6; camera.far = dist * 1.6; camera.clearViewOffset(); orbit = null; if (box) box.visible = true;
     } else {
       // P.4: a true orbit round the hanging stone to Ruth's side, closing in until the stone is as big as in her photograph
       const T = stone.position;
-      if (!orbit) { const v = camera.position.clone().sub(T), d0 = v.length(); orbit = { yaw0: Math.atan2(v.x, v.z), pitch0: Math.asin(v.y / d0), d0, q0: toScreen(T) }; }
+      if (!orbit) { const v = camera.position.clone().sub(T), d0 = v.length(); orbit = { yaw0: Math.atan2(v.x, v.z), pitch0: Math.asin(v.y / d0), d0, q0: toScreen(T) }; placeRuth(orbit.yaw0 + Math.PI * .92); }
+      if (ruth) ruth.visible = st.swing > .3;
       const k = st.swing < .5 ? 2 * st.swing * st.swing : 1 - Math.pow(-2 * st.swing + 2, 2) / 2;
+      // with Ruth in the room the lens widens through the turn, as her photograph was taken, so she shows from the waist up
+      if (ruth) camera.fov = fovBase + (34 - fovBase) * k;
       const ppm1 = (REV.stoneW / REV.w / coverX * W) / .075, d1 = H / (2 * Math.tan(camera.fov * Math.PI / 360) * ppm1);
       // it closes in on the stone in the first part of the turn, so the camera stays inside the room as it goes round
       const kd = THREE.MathUtils.smoothstep(st.swing, 0, .4), dd = orbit.d0 * Math.pow(d1 / orbit.d0, kd);
       const yw = orbit.yaw0 + Math.PI * .92 * k, pt = orbit.pitch0 + (.12 - orbit.pitch0) * k;
       camera.position.set(T.x + Math.sin(yw) * Math.cos(pt) * dd, T.y + Math.sin(pt) * dd, T.z + Math.cos(yw) * Math.cos(pt) * dd);
-      camera.up.set(0, 1, 0); camera.lookAt(T); camera.near = Math.max(.02, dd * .2); camera.far = dd + 12;
+      camera.up.set(0, 1, 0); camera.lookAt(T);
+      // with Ruth in the room, the push toward her eye is the camera itself moving in
+      if (ruth && st.eyeZoom > 0) { const e = ruthEye(), z = st.eyeZoom * st.eyeZoom * .9; camera.position.lerp(e, z * .95); camera.lookAt(v3.copy(T).lerp(e, Math.min(1, z * 1.6))); } camera.near = Math.max(.02, dd * .2); camera.far = dd + 12;
       // the stone moves on screen from where it hung in the diorama to where it hangs in her photograph
       const qb = revToScreen(REV.stone.x, REV.stone.y);
       // as her photograph comes in, it holds its own box: only the real stone stays
-      if (box) box.visible = st.swing < .7;
+      if (box) box.visible = ruth ? true : st.swing < .7;
       camera.setViewOffset(W, H, (W / 2 - orbit.q0.x) * (1 - k) + (W / 2 - qb.x) * k, (H / 2 - orbit.q0.y) * (1 - k) + (H / 2 - qb.y) * k, W, H);
     }
     camera.updateProjectionMatrix(); camera.updateMatrixWorld();
@@ -291,7 +315,7 @@ export function createLab(canvas, opts = {}) {
       halo.scale.setScalar(.36 * (1 + .25 * st.pulse + .35 * st.flash));
       halo.material.opacity = THREE.MathUtils.smoothstep(st.lift, 0, 1) * (.75 + .25 * st.pulse + .4 * st.flash);
       // past the middle of the turn they are drawn over the photograph that comes in
-      const over = st.swing > .5 ? fg : scene; if (stone.parent !== over) { over.add(stone); over.add(halo); }
+      const over = st.swing > .5 && !ruth ? fg : scene; if (stone.parent !== over) { over.add(stone); over.add(halo); }
     }
     if (gemMat) gemMat.emissiveIntensity = Math.min(1.2 + 4.5 * st.lift + st.flash * 3, glowK * 6);
     stoneLight.intensity = glowK * (10 + 6 * st.lift) * (.85 + .3 * st.pulse);
@@ -314,7 +338,9 @@ export function createLab(canvas, opts = {}) {
   const nodeScreen = name => nodes[name] ? toScreen(nodes[name].getWorldPosition(new THREE.Vector3())) : null;
   const stonePx = () => { if (!stone) return 22; const a = toScreen(stone.position), b = toScreen(stone.position.clone().add(new THREE.Vector3(0, .1, 0))); return Math.abs(a.y - b.y) * .75; };
   const revToScreen = (px, py) => ({ x: ((px / REV.w - .5) / coverX + .5) * W, y: ((py / REV.h - .5) / coverY + .5) * H });
-  const eyeScreen = () => revToScreen(REV.eye.x, REV.eye.y);
+  // her eye: on her model, a little in front of the head bone; on her photograph, where it is in the picture
+  const ruthEye = () => { const e = (ruthHead || ruth).getWorldPosition(new THREE.Vector3()); e.y += .09; return e.add(new THREE.Vector3(Math.sin(ruth.rotation.y), 0, Math.cos(ruth.rotation.y)).multiplyScalar(.09)); };
+  const eyeScreen = () => ruth && ruth.visible ? toScreen(ruthEye()) : revToScreen(REV.eye.x, REV.eye.y);
   const setPointer = (x, y) => { pointerActive = true; look.x = x; look.y = y; };
   const holdFocus = (x, y) => { heldFocus = x == null ? null : { x, y }; };
   // the machine: the page sets how bright the monitor and each indicator are, 0 to 1
