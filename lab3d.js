@@ -280,7 +280,7 @@ export function createLab(canvas, opts = {}) {
   const keyCamera = cj => { const c = new THREE.PerspectiveCamera(); c.matrixAutoUpdate = false; c.matrixWorldAutoUpdate = false; c.matrixWorld.fromArray(cj.matrixWorld);
     c.matrixWorldInverse.copy(c.matrixWorld).invert(); c.projectionMatrix.fromArray(cj.projectionMatrix); c.projectionMatrixInverse.copy(c.projectionMatrix).invert();
     c.position.fromArray(cj.position); c.quaternion.fromArray(cj.quaternion); c.fov = cj.fov; return c; };
-  const loadProjection = async (base = 'models/web/proj/', names = ['a', 'open', 'c', 'b']) => {
+  const loadProjection = async (base = 'models/web/proj/', names = ['a', 'open', 'c', 'b', ...(opts.ruth3d ? ['b2'] : [])]) => {
     const tl = new THREE.TextureLoader(), get = u => fetch(u).then(r => r.ok ? r.json() : null).then(j => typeof j === 'string' ? JSON.parse(j) : j).catch(() => null);
     await ready;
     await Promise.all(names.map(async k => {
@@ -288,18 +288,23 @@ export function createLab(canvas, opts = {}) {
       const key = keys[k] = { cam: keyCamera(cj), cj, tex: null, depth: null, range: cj.depthRange || [cj.near, cj.far] };
       key.tex = await tl.loadAsync(base + k + '_paint.webp').catch(() => null); if (!key.tex) return;
       key.tex.minFilter = THREE.LinearFilter; key.tex.generateMipmaps = false;
-      const rtD = new THREE.WebGLRenderTarget(cj.width, cj.height);
-      depthMat.uniforms.zNear.value = key.range[0]; depthMat.uniforms.zFar.value = key.range[1];
-      const old = scene.overrideMaterial, bg = scene.background, tm = renderer.toneMapping, sv = stone && stone.visible;
-      // the window glass is see-through in the room, so it is left out of what each camera saw, as in the live depth
-      const glass = []; scene.traverse(o => { if (o.isMesh && o.visible && /window_glass/.test(o.material.name)) { glass.push(o); o.visible = false; } });
-      scene.overrideMaterial = depthMat; scene.background = new THREE.Color(0); renderer.toneMapping = THREE.NoToneMapping; halo.visible = false; beam.visible = false; if (stone) stone.visible = false;
-      renderer.setRenderTarget(rtD); renderer.clear(); renderer.render(scene, key.cam); renderer.setRenderTarget(null);
-      scene.overrideMaterial = old; scene.background = bg; renderer.toneMapping = tm; halo.visible = true; beam.visible = true; if (stone) stone.visible = sv; glass.forEach(o => o.visible = true);
-      key.depth = rtD; key.vp = new THREE.Matrix4().multiplyMatrices(key.cam.projectionMatrix, key.cam.matrixWorldInverse);
+      key.depth = new THREE.WebGLRenderTarget(cj.width, cj.height); keyDepth(key);
+      key.vp = new THREE.Matrix4().multiplyMatrices(key.cam.projectionMatrix, key.cam.matrixWorldInverse);
     }));
     proj.enabled = depthCopy.enabled = Object.values(keys).some(k => k.tex);
   };
+  // what a key frame's camera saw, as depth; redone when Ruth comes into the room, so her painting lands on her
+  function keyDepth(key) {
+    depthMat.uniforms.zNear.value = key.range[0]; depthMat.uniforms.zFar.value = key.range[1];
+    const old = scene.overrideMaterial, bg = scene.background, tm = renderer.toneMapping, sv = stone && stone.visible;
+    // the window glass is see-through in the room, so it is left out of what each camera saw, as in the live depth
+    const glass = []; scene.traverse(o => { if (o.isMesh && o.visible && /window_glass/.test(o.material.name)) { glass.push(o); o.visible = false; } });
+    scene.overrideMaterial = depthMat; scene.background = new THREE.Color(0); renderer.toneMapping = THREE.NoToneMapping; halo.visible = false; beam.visible = false; if (stone) stone.visible = false;
+    const rv = ruth && ruth.visible; if (ruth) ruth.visible = true;   // she stands in the end frames whichever loads first
+    renderer.setRenderTarget(key.depth); renderer.clear(); renderer.render(scene, key.cam); renderer.setRenderTarget(null);
+    if (ruth) ruth.visible = rv;
+    scene.overrideMaterial = old; scene.background = bg; renderer.toneMapping = tm; halo.visible = true; beam.visible = true; if (stone) stone.visible = sv; glass.forEach(o => o.visible = true);
+  }
   const setSlot = (slot, key, w) => { const u = proj.uniforms; u['w' + slot].value = key ? w : 0; if (!key) return;
     u['p' + slot].value = key.tex; u['d' + slot].value = key.depth.texture; u['vp' + slot].value.copy(key.vp); u['v' + slot].value.copy(key.cam.matrixWorldInverse); u['r' + slot].value.set(key.range[0], key.range[1]); };
   const focus = new ShaderPass({
@@ -358,7 +363,7 @@ export function createLab(canvas, opts = {}) {
   });
   const loadReverse = () => reverseLoad || (reverseLoad = loader.loadAsync('models/web/ruth.glb').then(g => {
     const lean = g.animations.find(a => /lean/i.test(a.name));
-    if (!opts.ruth3d) return loadPlate();   // her model stands in only when asked for (&ruth=3d), until she passes
+    if (!opts.ruth3d) return loadPlate();   // ?ruth=plate ends on her photograph instead
     ruth = g.scene; ruth.visible = false;
     // a cool rim round her edges, as from a window behind her: only on her, so nothing else in the room is lit by it
     ruth.traverse(o => { if (!o.isMesh) return; o.material.onBeforeCompile = sh => { sh.uniforms.ruthRim = ruthRim;
@@ -370,7 +375,8 @@ export function createLab(canvas, opts = {}) {
     // her real height, 1.70 m, whatever units the model is in
     const bb = new THREE.Box3().setFromObject(ruth), h = bb.max.y - bb.min.y || 1; ruth.scale.multiplyScalar(1.7 / h);
     if (lean) { ruthMixer = new THREE.AnimationMixer(ruth); const a = ruthMixer.clipAction(lean); a.play(); a.paused = true; a.time = lean.duration; ruthMixer.update(0); }
-    scene.add(ruth);
+    scene.add(ruth); placeRuth();
+    for (const k of ['b2', 'ruth']) if (keys[k] && keys[k].depth) keyDepth(keys[k]);
   }).catch(() => loadPlate()));
   // where she stands: her model is made for its place in this room, root on the floor at (0, 0.09) unturned; its lean
   // puts her hands on the worktable and turns her to the stone
@@ -473,7 +479,7 @@ export function createLab(canvas, opts = {}) {
     // the desk lamp, until it is switched off; then only the moon
     lampSpot.intensity = 14 * (1 - st.lamp); lampGlow.intensity = .25 * (1 - st.lamp);
     if (bulbMat) bulbMat.emissiveIntensity = 3 * (1 - st.lamp);
-    ruthRim.value = ruth ? THREE.MathUtils.smoothstep(st.swing, .5, 1) : 0;
+    ruthRim.value = ruth && !(keys.b2 && keys.b2.tex) ? THREE.MathUtils.smoothstep(st.swing, .5, 1) : 0;   // not under her painting, where its edges would show
     moon.intensity = 1.0 + .4 * st.lamp; fill.intensity = .12 * (1 - .35 * st.lamp);
     // Ruth's photograph over the end of the orbit
     plate.uniforms.mixB.value = plate.uniforms.reverse.value ? THREE.MathUtils.smoothstep(st.swing, .72, 1) : 0;
