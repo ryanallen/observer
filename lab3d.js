@@ -210,6 +210,8 @@ export function createLab(canvas, opts = {}) {
       }`,
   });
   composer.addPass(plate);
+  // over her photograph, the real stone and its halo still hang where her photograph has them
+  const fg = new THREE.Scene(), fgPass = new RenderPass(fg, camera); fgPass.clear = false; fgPass.clearDepth = true; composer.addPass(fgPass);
   composer.addPass(new OutputPass());
 
   let reverseLoad = null;
@@ -253,7 +255,9 @@ export function createLab(canvas, opts = {}) {
       if (!orbit) { const v = camera.position.clone().sub(T), d0 = v.length(); orbit = { yaw0: Math.atan2(v.x, v.z), pitch0: Math.asin(v.y / d0), d0, q0: toScreen(T) }; }
       const k = st.swing < .5 ? 2 * st.swing * st.swing : 1 - Math.pow(-2 * st.swing + 2, 2) / 2;
       const ppm1 = (REV.stoneW / REV.w / coverX * W) / .075, d1 = H / (2 * Math.tan(camera.fov * Math.PI / 360) * ppm1);
-      const yw = orbit.yaw0 + Math.PI * .92 * k, pt = orbit.pitch0 + (.12 - orbit.pitch0) * k, dd = orbit.d0 + (d1 - orbit.d0) * k;
+      // it closes in on the stone in the first part of the turn, so the camera stays inside the room as it goes round
+      const kd = THREE.MathUtils.smoothstep(st.swing, 0, .4), dd = orbit.d0 * Math.pow(d1 / orbit.d0, kd);
+      const yw = orbit.yaw0 + Math.PI * .92 * k, pt = orbit.pitch0 + (.12 - orbit.pitch0) * k;
       camera.position.set(T.x + Math.sin(yw) * Math.cos(pt) * dd, T.y + Math.sin(pt) * dd, T.z + Math.cos(yw) * Math.cos(pt) * dd);
       camera.up.set(0, 1, 0); camera.lookAt(T); camera.near = Math.max(.02, dd * .2); camera.far = dd + 12;
       // the stone moves on screen from where it hung in the diorama to where it hangs in her photograph
@@ -282,7 +286,9 @@ export function createLab(canvas, opts = {}) {
       // the halo sits just behind the stone, as seen from the camera
       halo.position.copy(stone.position).addScaledVector(camera.position.clone().sub(stone.position).normalize(), -.12);
       halo.scale.setScalar(.36 * (1 + .25 * st.pulse + .35 * st.flash));
-      halo.material.opacity = THREE.MathUtils.smoothstep(st.lift, 0, 1) * (.75 + .25 * st.pulse + .4 * st.flash) * (1 - THREE.MathUtils.smoothstep(st.swing, .6, .9));
+      halo.material.opacity = THREE.MathUtils.smoothstep(st.lift, 0, 1) * (.75 + .25 * st.pulse + .4 * st.flash);
+      // past the middle of the turn they are drawn over the photograph that comes in
+      const over = st.swing > .5 ? fg : scene; if (stone.parent !== over) { over.add(stone); over.add(halo); }
     }
     if (gemMat) gemMat.emissiveIntensity = Math.min(1.2 + 4.5 * st.lift + st.flash * 3, glowK * 6);
     stoneLight.intensity = glowK * (10 + 6 * st.lift) * (.85 + .3 * st.pulse);
