@@ -160,13 +160,13 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     lab: 'lab', open: 'lab', machine: 'lab', swing: 'lab', steeple: 'lab', iris: 'lab' };
   let ff = !!SCENE_OF[AT] && !['bay', 'lab'].includes(AT);   // running ahead to the beat
   const mark = name => { if (ff && name === AT) ff = false; };
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b64')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b65')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
-  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b64')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b65')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
   // ---- Blake's study: loaded while the iris video plays, shown once the view has pulled out of the field glasses ----
   let study = null, studyLoad = null;
-  const loadStudy = () => studyLoad || (studyLoad = import('./study.js?v=' + (q0.get('v') || 'b64')).then(m => { study = m.createStudy($('study')); window.observerStudy = study; return study.ready.then(() => study); }).catch(e => { console.warn('study', e); return null; }));
+  const loadStudy = () => studyLoad || (studyLoad = import('./study.js?v=' + (q0.get('v') || 'b65')).then(m => { study = m.createStudy($('study')); window.observerStudy = study; return study.ready.then(() => study); }).catch(e => { console.warn('study', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
@@ -838,7 +838,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     drawMachine();
     drawP4();
     if (S.dark > 0) drawDark();
-    if (washT0 >= 0) { const k = (t - washT0) / 1.3; if (k >= 1) washT0 = -1; else drawWash(k); }
+    if (washT0 === -1 && bay && S.bay > 0 && bay.camera.position.y < 0) washT0 = t;   // the wash starts on the very frame the view goes under
+    if (washT0 >= 0) { const k = (t - washT0) / 1.3; if (k >= 1) washT0 = -2; else drawWash(k); }   // -2: it has played, once
     if (S.flare > 0) { g.fillStyle = `rgba(255,248,236,${S.flare * .9})`; g.fillRect(0, 0, W, H); }
     requestAnimationFrame(draw);
   }
@@ -1042,8 +1043,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     if (!ff || AT === 'underwater') descentSound();
     // as the view itself goes under: a wash of water and a burst of bubbles, and the splash again, softer and shorter
     (async () => {
-      while (bay.camera.position.y > 0) await wait(20);
-      washT0 = t;
+      while (washT0 === -1) await wait(20);   // set by the frame that takes the camera under
       if (play('splash2')) { await wait(1200); stop('splash2', 400); }
       release('splash2');
     })();

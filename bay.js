@@ -876,7 +876,7 @@ export function createBay(canvas) {
   addEventListener('pointerdown', rackTo);
   addEventListener('pointerup', e => { if (e.pointerType !== 'mouse') cameraPointerActive = false; });
   document.addEventListener('mouseleave', e => { cameraPointerActive = false; if (e.pointerType !== 'touch') pointerActive = false; });
-  let underD = null;
+  let underD = null, plunged = false;
   const runAt = e => e <= .85 ? e : .85 + (e - .85) - (e - .85) * (e - .85) / .3;
   const st = { dive: 0, diveArmed: false, floor: 0, close: 0, stone: 0, creep: 0, fade: 0, zoom: 0, zoomTarget: 0 };
   let ledDive = false;
@@ -1017,7 +1017,7 @@ export function createBay(canvas) {
     const surface = 1 - smooth(0, .18, d);
     focus.uniforms.amount.value = surface * (d > 0 ? .30 : pointerActive ? 1 : mix(1, .30, zoom));
     // once the view is under the water it holds that framing: it only follows the lamp down, until the lamp is observed at the floor
-    if (underD === null && camera.position.y < 0 && d > 0) underD = d;
+    if (underD === null && plunged) underD = d;
     const dv = underD === null ? d : underD, cl = smooth(0, 1, st.close);
     const yaw = Math.PI / 4 + dv * .9;
     // a tall screen keeps the same width of view as a wide one
@@ -1039,6 +1039,10 @@ export function createBay(canvas) {
     const offsetY = Math.cos(pitch) * dy;
     const offsetZ = -Math.sin(yaw) * dx - Math.sin(pitch) * Math.cos(yaw) * dy;
     camera.position.x += offsetX; camera.position.y += offsetY; camera.position.z += offsetZ;
+    // the waves reach about 0.6 m above and below the still waterline; the camera never sits in that band, where it would
+    // be under one crest and over the next. It plunges through it in one frame, and the underwater look is on from that frame
+    if (d > 0 && camera.position.y < .6) plunged = true;
+    if (plunged) camera.position.y -= 1.2 * (1 - smooth(-.6, -6, camera.position.y));
     water.position.set(camera.position.x, 0, camera.position.z);
     water.scale.setScalar(mix(4, 1, zoom));
     // the camera follows the lamp down, but stays above the water until the lamp is well under, then drops through it
@@ -1055,6 +1059,8 @@ export function createBay(canvas) {
     scene.fog.color.copy(fogCol); scene.background.copy(fogCol);
     scene.fog.density = cu ? mix(mix(.022, .085, smooth(-2, -26, camera.position.y)), .035, smooth(0, 1, fl)) : .0035;
     sky.visible = !cu;
+    // the snow and the buoy's light follow where the camera is this frame, not last frame
+    snowMat.uniforms.amt.value = under * (cu ? 1 : 0) * (1 - deep * .4); if (cu) buoyLight.intensity = 0;
     // the floor loads once the dive is chosen; the surface is let go once it is far overhead
     if ((st.diveArmed || st.dive > 0) && !floorReadying) readyFloor();
     if (!surfaceFreed && camera.position.y < -12 && d > .5) freeSurface();
