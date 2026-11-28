@@ -28,6 +28,15 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 .skip:hover { color: var(--dim); }
 .sound { position: fixed; left: 18px; bottom: 14px; width: 40px; height: 40px; padding: 9px; background: none; border: 0; cursor: pointer; color: #8f8a80; transition: color .3s; }
 .sound:hover { color: var(--ink); }
+/* the review menu: hidden from the public; the backquote key opens it, or ?dev shows it on load */
+.dev { position: fixed; right: 12px; top: 12px; z-index: 20; max-height: calc(100% - 24px); overflow: auto; padding: 6px 0; background: rgba(8,8,9,.9);
+  border: 1px solid #2a2825; font-family: Mono, monospace; font-size: 11px; letter-spacing: .08em; }
+.dev[hidden] { display: none; }
+.dev a { display: block; padding: 5px 14px; color: var(--dim); text-decoration: none; white-space: nowrap; }
+.dev a:hover, .dev a.on { color: var(--ink); background: #1b1a18; }
+.devbtn { position: fixed; right: 8px; top: 8px; z-index: 21; width: 32px; height: 32px; background: rgba(8,8,9,.6); border: 1px solid #2a2825; color: var(--dim); font-size: 16px; padding: 0; }
+.devbtn[hidden] { display: none; }
+.dev:not([hidden]) ~ .devbtn { display: none; }
 .sound svg { width: 22px; height: 22px; display: block; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .sound svg path:first-child { fill: currentColor; fill-opacity: .18; }
 /* the icon shows the state; hovering shows the state a click will give */
@@ -84,6 +93,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   <svg class="i-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path class="w" d="m16 9.5 5 5m0-5-5 5"/></svg>
 </button>
 <div class="tip" id="tip"></div>
+<nav class="dev" id="dev" hidden></nav>
+<button class="devbtn" id="devbtn" hidden aria-label="Scenes">&equiv;</button>
 <button class="begin" id="begin">observe</button>
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/addons/" } }</script>
 <script>
@@ -130,7 +141,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     edge: 1,          // black feather on the entering bay's left edge
   };
   const tweenOn = (o, k, to, ms, ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2) => new Promise(res => {
-    const from = o[k], t0 = performance.now(); if (reduce) ms = Math.min(ms, 300);
+    const from = o[k], t0 = performance.now(); if (reduce) ms = Math.min(ms, 300); if (ff) ms = 1;
     const step = now => { const t = Math.min(1, (now - t0) / ms); o[k] = from + (to - from) * ease(t); t < 1 ? requestAnimationFrame(step) : res(); };
     requestAnimationFrame(step);
   });
@@ -138,13 +149,24 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b63')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  // ---- the review menu's beats: each has its own ?at= link. The page starts at the scene holding the beat and runs
+  // ahead at full speed, with no sound, words or holds, until it reaches it ----
+  const BEATS = [['observe', 'OBSERVE'], ['point', 'the point'], ['lines', 'the lines'], ['sweep', 'the sweep and pan'],
+    ['bay', 'the bay zoomed out'], ['drop', 'the zoom and drop'], ['underwater', 'underwater'], ['floor', 'the floor'], ['dark', 'the dark beat'],
+    ['lab', 'the lab'], ['open', 'the box opens'], ['machine', 'the machine fires'], ['swing', 'the swing to Ruth'], ['steeple', 'the steeple'],
+    ['iris', 'the iris'], ['study', 'the study']];
+  const AT = q0.get('at'), DEV = q0.has('dev') || BEATS.some(b => b[0] === AT);
+  const SCENE_OF = { point: 'opening', lines: 'opening', sweep: 'opening', bay: 'bay', drop: 'bay', underwater: 'bay', floor: 'bay', dark: 'bay',
+    lab: 'lab', open: 'lab', machine: 'lab', swing: 'lab', steeple: 'lab', iris: 'lab' };
+  let ff = !!SCENE_OF[AT] && !['bay', 'lab'].includes(AT);   // running ahead to the beat
+  const mark = name => { if (ff && name === AT) ff = false; };
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b64')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
-  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b63')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b64')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
   // ---- Blake's study: loaded while the iris video plays, shown once the view has pulled out of the field glasses ----
   let study = null, studyLoad = null;
-  const loadStudy = () => studyLoad || (studyLoad = import('./study.js?v=' + (q0.get('v') || 'b63')).then(m => { study = m.createStudy($('study')); window.observerStudy = study; return study.ready.then(() => study); }).catch(e => { console.warn('study', e); return null; }));
+  const loadStudy = () => studyLoad || (studyLoad = import('./study.js?v=' + (q0.get('v') || 'b64')).then(m => { study = m.createStudy($('study')); window.observerStudy = study; return study.ready.then(() => study); }).catch(e => { console.warn('study', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
@@ -153,12 +175,12 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     const moving = (S.lines > 0 && S.lines < 1) || (S.pull > 0 && S.pull < 1) || eyeMoving || S.follow > 0;
     if (S.bay > 0 || (document.getElementById('begin') && !S.pt) || (!moving && ph > .45 && ph < .92)) r(); else setTimeout(chk, 40);
   }; chk(); });
-  const wait = ms => new Promise(r => setTimeout(r, reduce ? Math.min(ms, 600) : ms));
+  const wait = ms => new Promise(r => setTimeout(r, ff ? 1 : reduce ? Math.min(ms, 600) : ms));
   let skipping = false;
   // a line on screen, and the Observer's recording of it where there is one; the line stays up while it is spoken
   const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3?v=2', 'Every line, followed far enough, comes to it.': 'audio/voice-every-line-followed-far-enough.mp3?v=1', 'Follow one line back.': 'audio/voice-follow-one-line-back.mp3?v=1', 'In 1935, Dr Dexter sank the Shining Trapezohedron here.': 'audio/voice-in-1935-dr-dexter-sank.mp3?v=1', 'Now his great-granddaughter has come for it.': 'audio/voice-now-his-great-granddaughter.mp3?v=1', 'Ninety years in the dark.': 'audio/voice-ninety-years-in-the-dark.mp3?v=1', 'In the dark, it wakes.': 'audio/voice-in-the-dark-it-wakes.mp3?v=1' };
   const say = async (text, hold) => {
-    if (skipping) return;
+    if (skipping || ff) return;
     const c = $('cap'); c.textContent = text; c.classList.add('on');
     // the line stays up for as long as it is spoken; the bed dips about 6 dB under it
     const h = play(text), len = soundLength(text);
@@ -207,6 +229,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // Sound is on unless turned off (remembered in this browser); a browser lets it start only inside a click, tap or key,
   // so the OBSERVE click is where it starts ----
   let want = true; try { want = localStorage.getItem('observer-sound') !== 'off'; } catch (e) {}
+  if (DEV) want = false;   // the review menu's links start muted
   let ac = null, bus = null, beatN = 0, soundOn = false;
   const synth = new URLSearchParams(location.search).get('beat') === 'synth';
   const qs = new URLSearchParams(location.search);
@@ -547,7 +570,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const P4vid = () => p4Ready.vid;
   // a promise kept on the next heartbeat
   const beatWaiters = [];
-  const onBeat = () => new Promise(r => beatWaiters.push(r));
+  const onBeat = () => ff ? Promise.resolve() : new Promise(r => beatWaiters.push(r));
   const washBubbles = Array.from({ length: 70 }, () => ({ x: Math.random(), y: .55 + Math.random() * .6, r: 1.5 + Math.pow(Math.random(), 2.2) * 16, v: .7 + Math.random() * .9, w: Math.random() * 6.28, d: Math.random() * .25 }));
   const drawWash = k => {
     // the waterline passes from below the frame to above it in the first 0.45 of the effect
@@ -855,12 +878,12 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     if (Math.hypot(e.clientX - P.x, e.clientY - P.y) <= TAP) finish();
   });
   addEventListener('keydown', e => { if ((e.code === 'Space' || e.code === 'Enter') && canHold) { e.preventDefault(); finish(); } });
-  const waitHold = () => new Promise(res => { done = res; canHold = true; armed = !(mouse.on && near()); holdLast = performance.now(); requestAnimationFrame(tick); });
+  const waitHold = () => ff ? Promise.resolve() : new Promise(res => { done = res; canHold = true; armed = !(mouse.on && near()); holdLast = performance.now(); requestAnimationFrame(tick); });
 
   const showSound = () => { $('sound').classList.toggle('muted', !want); $('sound').setAttribute('aria-label', want ? 'Turn sound off' : 'Turn sound on'); };
   showSound();
   $('sound').onclick = e => {
-    e.stopPropagation(); want = !want; try { localStorage.setItem('observer-sound', want ? 'on' : 'off'); } catch (err) {}
+    e.stopPropagation(); want = !want; if (!DEV) try { localStorage.setItem('observer-sound', want ? 'on' : 'off'); } catch (err) {}
     if (want) startSound(); else { soundOn = false; if (bus) bus.master.gain.setTargetAtTime(0, ac.currentTime, .02); for (const k in live) if (live[k].el) live[k].el.pause(); }
     showSound(); hideTip('sound');
   };
@@ -889,12 +912,36 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   let tipKey = null, tipTimer = 0;
   const tip = (key, text, ms) => { clearTimeout(tipTimer); tipKey = key; $('tip').textContent = text; $('tip').classList.add('on'); tipTimer = setTimeout(() => hideTip(key), ms); };
   const hideTip = key => { if (tipKey === key) { $('tip').classList.remove('on'); tipKey = null; } };
+  // ---- the review menu: a link for every beat; the backquote key opens and closes it, and while it is open the left and
+  // right arrows step between beats; on a phone, ?dev adds a small corner button for it ----
+  {
+    const nav = $('dev'), btn = $('devbtn'), here = Math.max(0, BEATS.findIndex(b => b[0] === AT));
+    const go = i => { location.search = '?at=' + BEATS[i][0] + '&dev'; };
+    BEATS.forEach(([k, label], i) => {
+      const a = document.createElement('a'); a.href = '?at=' + k + '&dev'; a.textContent = label; if (AT && i === here) a.className = 'on';
+      a.onclick = e => { e.preventDefault(); e.stopPropagation(); go(i); }; nav.appendChild(a);
+    });
+    nav.hidden = !q0.has('dev');
+    if (q0.has('dev') && matchMedia('(pointer: coarse)').matches) btn.hidden = false;
+    btn.onclick = e => { e.stopPropagation(); nav.hidden = !nav.hidden; };
+    for (const el of [nav, btn]) el.addEventListener('pointerdown', e => e.stopPropagation());
+    addEventListener('keydown', e => {
+      if (e.key === '`') { e.preventDefault(); e.stopPropagation(); nav.hidden = !nav.hidden; return; }
+      if (nav.hidden) return;
+      if (e.key === 'ArrowRight' && here < BEATS.length - 1) go(AT ? here + 1 : 1);
+      if (e.key === 'ArrowLeft' && here > 0) go(here - 1);
+    }, true);
+  }
   // ---- the opening ----
   (async () => {
     // nothing but the way in; its click is what lets a browser play the sound
     const b = $('begin'); await wait(400); b.classList.add('on'); b.focus({ preventScroll: true });
+    const scene = SCENE_OF[AT];
+    if (scene === 'opening') { b.remove(); loadBay(); }
+    else if (scene === 'bay') { b.remove(); S.pt = 1; skipping = false; loadBay(); await bayScene(); return; }
+    else if (scene === 'lab') { b.remove(); S.pt = 1; S.bay = 1; S.dark = 1; skipping = false; if (await loadLab()) await labScene(); return; }
     if (q0.get('at') === 'bay') { b.remove(); S.pt = 1; skipping = false; loadBay(); await bayScene(); return; }
-    if (q0.get('at') === 'iris') {   // for tests: from the end of the iris video through the pull-out into the study
+    if (q0.get('at') === 'pullout') {   // for tests: from the end of the iris video through the pull-out into the study
       b.remove(); S.pt = 0; skipping = false; p4Ready = await loadP4(); loadStudy(); await loadStudy();
       P4vid().currentTime = 2.99; S.vid = 1; await wait(800);
       window.__irisGo = true; await tween('flick', 1, 600, k => k); await wait(500); await tween('out', 1, 5200, k => k);
@@ -902,16 +949,20 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     }
     if (q0.get('at') === 'study') { b.remove(); S.pt = 0; skipping = false; if (await loadStudy()) { $('study').style.opacity = 1; S.study = 1; } return; }
     if (q0.get('at') === 'lab') { b.remove(); S.pt = 1; S.bay = 1; S.dark = 1; skipping = false; if (await loadLab()) await labScene(); return; }
-    await new Promise(res => b.addEventListener('click', e => { e.stopPropagation(); if (want) { startSound(); play('tremble'); } loadBay(); res(); }, { once: true }));
-    b.blur(); b.classList.add('tremble'); await wait(500);
-    b.classList.remove('tremble'); b.classList.add('line'); await wait(110);
-    b.classList.add('shut'); await wait(140);
-    b.remove();
+    if (scene !== 'opening') {
+      await new Promise(res => b.addEventListener('click', e => { e.stopPropagation(); if (want) { startSound(); play('tremble'); } loadBay(); res(); }, { once: true }));
+      b.blur(); b.classList.add('tremble'); await wait(500);
+      b.classList.remove('tremble'); b.classList.add('line'); await wait(110);
+      b.classList.add('shut'); await wait(140);
+      b.remove();
+    }
     // the point, born where the line shut, and its first heartbeat at once
     t = 0; lastBeat = -1; S.pt = 1;
+    mark('point');
     await wait(2200);
     await say('This is a point.', 3200);
-    tween('linesA', 1, 1600); tween('lines', 1, 6500, t => t); if (!skipping) play('lines');
+    mark('lines');
+    tween('linesA', 1, 1600); tween('lines', 1, 6500, t => t); if (!skipping && !ff) play('lines');
     await say('Every line, followed far enough, comes to it.', 5200);
     await wait(skipping ? 0 : 600);
     tween('lines', 1, 300); $('skip').style.display = 'none';
@@ -926,7 +977,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     await wait(900); S.ring = 0;
     skipping = false;
     if (await loadBay()) {
-      await Promise.race([bay.ready, wait(8000)]);
+      await Promise.race([bay.ready, ff ? new Promise(() => {}) : wait(8000)]);
+      mark('sweep');
       play('follow');
       followVolume(true);
       const voices = (async () => {
@@ -972,21 +1024,22 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     // the moment the ring fills, it is decided: the zoom and the drop start on that frame, and moving away no longer
     // cancels anything
     await waitHold();
+    mark('drop');
     bay.st.diveArmed = true; bay.st.zoomTarget = 1;
     observed = true; hideTip('observe');
     S.ring = 0; $('place').classList.remove('on');
     // one continuous descent: both lines are said from the moment the lamp hits the water, and it reaches the floor just after them
     // the dive runs on its own clock, but if the floor is not ready by 90% it holds there while the lamp keeps creeping
     // down, and goes on (and the clock with it) once the floor is ready
-    const diveMs = 17000; let dive0 = performance.now(), heldAt = 0;
+    const diveMs = 17000; let diveK = 0, diveLast = performance.now(), heldAt = 0;
     (function diveStep(now) {
-      let k = (now - dive0) / diveMs;
-      if (k > .9 && !bay.floorReady) { if (!heldAt) heldAt = now; bay.st.creep = 1 - Math.exp(-(now - heldAt) / 9000); k = .9; }
-      else if (heldAt) { dive0 += now - heldAt; heldAt = 0; k = (now - dive0) / diveMs; }
-      bay.st.dive = Math.min(1, k);
-      if (k < 1) requestAnimationFrame(diveStep);
-    })(dive0);
-    descentSound();
+      const step = (now - diveLast) / diveMs * (ff ? 25 : 1); diveLast = now;
+      if (diveK + step > .9 && !bay.floorReady) { if (!heldAt) heldAt = now; bay.st.creep = 1 - Math.exp(-(now - heldAt) / 9000); diveK = Math.max(diveK, .9); }
+      else { heldAt = 0; diveK += step; }
+      bay.st.dive = Math.min(1, diveK);
+      if (diveK < 1) requestAnimationFrame(diveStep);
+    })(diveLast);
+    if (!ff || AT === 'underwater') descentSound();
     // as the view itself goes under: a wash of water and a burst of bubbles, and the splash again, softer and shorter
     (async () => {
       while (bay.camera.position.y > 0) await wait(20);
@@ -995,18 +1048,21 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       release('splash2');
     })();
     while (bay.lampY > 0) await wait(30);
+    mark('underwater');
     await say('In 1935, Dr Dexter sank the Shining Trapezohedron here.', 5200);
     await say('Now his great-granddaughter has come for it.', 5600);
     while (!bay.floorReady) await wait(100);
-    const left = Math.max(2500, diveMs - (performance.now() - dive0));
+    const left = Math.max(2500, (1 - diveK) * diveMs);
     tweenOn(bay.st, 'floor', 1, left);
     await wait(left);
     // the view holds on the lamp at the floor until the lamp is observed; only then does it close in and bring the stone
     // to the centre, the ping passing from the lamp to the stone
+    mark('floor');
     let lampSeen = false;
     (async () => { await wait(7000); while (!lampSeen) { tip('observe', howTo, 4500); await wait(16000); } })();
     await waitHold(); lampSeen = true; hideTip('observe');
     S.ring = 0;
+    mark('dark');
     tweenOn(bay.st, 'close', 1, 3200);
     await tweenOn(bay.st, 'stone', 1, 3200);
     // as the view settles on the stone, the next heartbeat shoots the dark out from it; the lab loads while it is black,
@@ -1037,6 +1093,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     (async () => { await wait(7000); while (!seen) { tip('observe', howToNow(), 4500); await wait(16000); } })();
     await waitHold(); seen = true; hideTip('observe');
     S.ring = 0;
+    mark('open');
     // the desk lamp clicks off; a beat of darkness; then the box opens as the line is said
     switchClick();
     await tweenOn(lab.st, 'lamp', 1, 220, k => k);
@@ -1045,6 +1102,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     await tweenOn(lab.st, 'open', 1, 2800);
     // the stone lifts out and hangs above the box, turning; the ping goes with it
     await tweenOn(lab.st, 'lift', 1, 2600);
+    mark('machine');
     // the machine wakes by itself, then fires at the stone
     await wait(700);
     tween('monitor', 1, 1400, k => k);
@@ -1055,11 +1113,13 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     await wait(2600);
     say('A point of light at a time.', 2800);
     await wait(2200); await p4Load;
+    mark('swing');
     // the camera swings round the hanging stone, fast, and closes in on Ruth's side; the machine's light stays behind
     S.firing = false; photons.length = 0; tween('bench', 0, 400); tween('monitor', 0, 400);
     S.pt = 0;   // no ping ring on the stone through the look back
     await tweenOn(lab.st, 'swing', 1, 1500, k => k);
     await wait(1000);
+    mark('steeple');
     // a line shoots out of the stone into her eye; then lines burst out everywhere and settle into a steeple
     await tween('shot', 1, 300, k => k * k);
     await wait(900);   // held a beat, her eye catching the light
@@ -1070,6 +1130,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     await tween('steeple', 1, 900);
     await wait(1400);
     // close on her eye: the sound swells so its peak lands on the flicker, 4.2 s from now (the video starts in 1.2 s, runs 3 s)
+    mark('iris');
     play('iris');
     tweenOn(lab.st, 'eyeZoom', 1, 1500);
     await wait(800);
