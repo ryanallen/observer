@@ -46,6 +46,12 @@ export function createLab(canvas, opts = {}) {
   const fill = new THREE.HemisphereLight(0x34302c, 0x0e0a07, 0);
   const stoneLight = new THREE.PointLight(0xff6a2c, 0, 0, 1.5);
   scene.add(lampSpot, lampSpot.target, lampGlow, moon, moon.target, fill, stoneLight);
+  // the stone keeps its measured size; it reads by a soft red halo in the air behind it, its dark facets against the glow
+  const haloTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+    const g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(255,120,60,1)'); g.addColorStop(.25, 'rgba(255,60,20,.55)'); g.addColorStop(1, 'rgba(160,20,5,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 128, 128); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, color: 0xffffff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 }));
+  halo.renderOrder = -1; scene.add(halo);
 
   const st = { lamp: 0, open: 0, lift: 0, flash: 0, pulse: 0, swing: 0, eyeZoom: 0, fade: 1 };
   const nodes = {};
@@ -90,14 +96,23 @@ export function createLab(canvas, opts = {}) {
       stone = new THREE.Group(); scene.add(stone);
       top.getWorldPosition(stoneFrom); stone.position.copy(stoneFrom); stone.attach(top);
     }
-    if (nodes.stone_hang) nodes.stone_hang.getWorldPosition(stoneHang); else stoneHang.copy(stoneFrom).add(new THREE.Vector3(0, .3, 0));
+    if (nodes.stone_hang) nodes.stone_hang.getWorldPosition(stoneHang); else stoneHang.copy(stoneFrom);
+    // it rises clear of the open crown and hangs well above it, where it can be seen
+    stoneHang.y = Math.max(stoneHang.y, stoneFrom.y + .42);
     // the lamp: a spot down from the bulb onto the table, and its soft spill
     const bulb = new THREE.Vector3(); (nodes.lamp_bulb || room).getWorldPosition(bulb);
     lampSpot.position.copy(bulb); lampSpot.target.position.copy(bulb).add(new THREE.Vector3(.3, -1, .1)); lampGlow.position.copy(bulb).add(new THREE.Vector3(0, .05, 0));
     // what the page switches on: the monitor's screen and the eight indicator lights, made to glow on their own
     const glowMat = (o, col) => { if (!o) return null; const m = new THREE.MeshStandardMaterial({ color: 0x000000, emissive: col, emissiveIntensity: 0, roughness: .4 });
       o.traverse(c => { if (c.isMesh) c.material = m; }); return m; };
-    emissive.monitor = glowMat(nodes.monitor_screen, 0x7dffb0);
+    emissive.monitor = glowMat(nodes.monitor_screen, 0xffffff);
+    // the monitor's screen: dim green-grey with a few bright dots, as in the approved picture
+    if (emissive.monitor) {
+      const c = document.createElement('canvas'); c.width = 128; c.height = 96; const x = c.getContext('2d');
+      x.fillStyle = '#0d2219'; x.fillRect(0, 0, 128, 96); x.fillStyle = '#bfffe0';
+      for (const [a, b] of [[.22, .3], [.61, .48], [.4, .7], [.78, .25], [.3, .55], [.52, .2]]) { x.beginPath(); x.arc(a * 128, b * 96, 2.2, 0, 7); x.fill(); }
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; emissive.monitor.emissiveMap = t; emissive.monitor.needsUpdate = true;
+    }
     for (let i = 1; i <= 8; i++) emissive.indicators.push(glowMat(nodes['indicator_' + i], i % 3 === 0 ? 0x66ff88 : 0xff3b22));
     mergeStatic(room);
   });
@@ -264,9 +279,13 @@ export function createLab(canvas, opts = {}) {
       stone.position.lerpVectors(stoneFrom, stoneHang, k); stone.position.y += k * .008 * Math.sin(time * 1.1);
       stone.rotation.y += dt * .45 * k;
       stoneLight.position.copy(stone.position);
+      // the halo sits just behind the stone, as seen from the camera
+      halo.position.copy(stone.position).addScaledVector(camera.position.clone().sub(stone.position).normalize(), -.12);
+      halo.scale.setScalar(.36 * (1 + .25 * st.pulse + .35 * st.flash));
+      halo.material.opacity = THREE.MathUtils.smoothstep(st.lift, 0, 1) * (.75 + .25 * st.pulse + .4 * st.flash) * (1 - THREE.MathUtils.smoothstep(st.swing, .6, .9));
     }
     if (gemMat) gemMat.emissiveIntensity = Math.min(1.2 + 4.5 * st.lift + st.flash * 3, glowK * 6);
-    stoneLight.intensity = glowK * (7 + 4 * st.lift) * (.85 + .3 * st.pulse);
+    stoneLight.intensity = glowK * (10 + 6 * st.lift) * (.85 + .3 * st.pulse);
     // the desk lamp, until it is switched off; then only the moon
     lampSpot.intensity = 7 * (1 - st.lamp); lampGlow.intensity = 1.2 * (1 - st.lamp);
     moon.intensity = .8 + .3 * st.lamp; fill.intensity = 1.4 * (1 - .35 * st.lamp);
@@ -290,7 +309,7 @@ export function createLab(canvas, opts = {}) {
   const holdFocus = (x, y) => { heldFocus = x == null ? null : { x, y }; };
   // the machine: the page sets how bright the monitor and each indicator are, 0 to 1
   const setMachine = (monitor, indicators = []) => {
-    if (emissive.monitor) emissive.monitor.emissiveIntensity = monitor * 2.2;
+    if (emissive.monitor) emissive.monitor.emissiveIntensity = Math.min(1, monitor) * .9;   // a dim screen, as in the approved picture
     emissive.indicators.forEach((m, i) => { if (m) m.emissiveIntensity = (indicators[i] || 0) * 6; });
   };
   const setLights = () => {};
@@ -298,6 +317,7 @@ export function createLab(canvas, opts = {}) {
     removeEventListener('resize', resize);
     scene.traverse(o => { if (o.geometry) o.geometry.dispose(); for (const m of [].concat(o.material || [])) { for (const k in m) if (m[k] && m[k].isTexture) m[k].dispose(); m.dispose(); } });
     if (plate.uniforms.reverse.value) plate.uniforms.reverse.value.dispose();
+    haloTex.dispose(); halo.material.dispose();
     rt.dispose(); composer.dispose(); renderer.dispose(); renderer.forceContextLoss();
   };
   return { st, render, ready, screen, stoneScreen, stonePx, nodeScreen, revToScreen, eyeScreen, loadReverse, setPointer, holdFocus, setMachine, setLights, dispose, renderer,

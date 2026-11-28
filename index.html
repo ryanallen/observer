@@ -160,15 +160,15 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     lab: 'lab', open: 'lab', machine: 'lab', swing: 'lab', steeple: 'lab', iris: 'lab' };
   let ff = !!SCENE_OF[AT] && !['bay', 'lab'].includes(AT);   // running ahead to the beat
   const mark = name => { if (ff && name === AT) ff = false; };
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b69')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b70')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
   // ?lab=3d: the lab as a real 3D room (lab3d.js), with ?room= naming its model while it is being made
   const lab3d = q0.get('lab') === '3d';
-  const loadLab = () => labLoad || (labLoad = import((lab3d ? './lab3d.js?v=' : './lab.js?v=') + (q0.get('v') || 'b69')).then(m => { lab = m.createLab($('lab'), lab3d ? { room: q0.get('room') || 'models/web/lab_room.glb', view: q0.get('view'), noBoxMerge: q0.has('nobm') } : undefined); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  const loadLab = () => labLoad || (labLoad = import((lab3d ? './lab3d.js?v=' : './lab.js?v=') + (q0.get('v') || 'b70')).then(m => { lab = m.createLab($('lab'), lab3d ? { room: q0.get('room') || 'models/web/lab_room.glb', view: q0.get('view'), noBoxMerge: q0.has('nobm') } : undefined); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
   // ---- Blake's study: loaded while the iris video plays, shown once the view has pulled out of the field glasses ----
   let study = null, studyLoad = null;
-  const loadStudy = () => studyLoad || (studyLoad = import('./study.js?v=' + (q0.get('v') || 'b69')).then(m => { study = m.createStudy($('study')); window.observerStudy = study; return study.ready.then(() => study); }).catch(e => { console.warn('study', e); return null; }));
+  const loadStudy = () => studyLoad || (studyLoad = import('./study.js?v=' + (q0.get('v') || 'b70')).then(m => { study = m.createStudy($('study')); window.observerStudy = study; return study.ready.then(() => study); }).catch(e => { console.warn('study', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
