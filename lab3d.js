@@ -300,9 +300,10 @@ export function createLab(canvas, opts = {}) {
     // the window glass is see-through in the room, so it is left out of what each camera saw, as in the live depth
     const glass = []; scene.traverse(o => { if (o.isMesh && o.visible && /window_glass/.test(o.material.name)) { glass.push(o); o.visible = false; } });
     scene.overrideMaterial = depthMat; scene.background = new THREE.Color(0); renderer.toneMapping = THREE.NoToneMapping; halo.visible = false; beam.visible = false; if (stone) stone.visible = false;
+    photonSprites.forEach(sp => sp.visible = false);   // sprites would print as solid squares in the depth
     const rv = ruth && ruth.visible; if (ruth) ruth.visible = true;   // she stands in the end frames whichever loads first
     renderer.setRenderTarget(key.depth); renderer.clear(); renderer.render(scene, key.cam); renderer.setRenderTarget(null);
-    if (ruth) ruth.visible = rv;
+    if (ruth) ruth.visible = rv; photonSprites.forEach(sp => sp.visible = true);
     scene.overrideMaterial = old; scene.background = bg; renderer.toneMapping = tm; halo.visible = true; beam.visible = true; if (stone) stone.visible = sv; glass.forEach(o => o.visible = true);
   }
   const setSlot = (slot, key, w) => { const u = proj.uniforms; u['w' + slot].value = key ? w : 0; if (!key) return;
@@ -347,10 +348,12 @@ export function createLab(canvas, opts = {}) {
   composer.addPass(new OutputPass());
   composer.addPass(proj);
   // the turn itself: a fast sideways blur, strongest in the middle of the swing, as the plate lab has it
-  const turnBlur = new ShaderPass({ uniforms: { tDiffuse: { value: null }, amt: { value: 0 } },
+  const turnBlur = new ShaderPass({ uniforms: { tDiffuse: { value: null }, amt: { value: 0 }, zoom: { value: 0 }, eyeAt: { value: new THREE.Vector2(.5, .5) } },
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: `uniform sampler2D tDiffuse; uniform float amt; varying vec2 vUv; void main() {
-      vec3 acc = vec3(0.0); for (int i = 0; i < 14; i++) acc += texture2D(tDiffuse, vUv + vec2(amt * (float(i) / 13.0 - .5), 0.0)).rgb;
+    fragmentShader: `uniform sampler2D tDiffuse; uniform float amt, zoom; uniform vec2 eyeAt; varying vec2 vUv; void main() {
+      // and the push toward Ruth's eye over her painting, done on the finished picture so the painting stays on the room
+      vec2 s = eyeAt + (vUv - eyeAt) / (1.0 + 5.0 * zoom * zoom);
+      vec3 acc = vec3(0.0); for (int i = 0; i < 14; i++) acc += texture2D(tDiffuse, s + vec2(amt * (float(i) / 13.0 - .5), 0.0)).rgb;
       gl_FragColor = vec4(acc / 14.0, 1.0); }` });
   turnBlur.enabled = false; composer.addPass(turnBlur);
 
@@ -437,14 +440,27 @@ export function createLab(canvas, opts = {}) {
       camera.position.set(T.x + Math.sin(yw) * Math.cos(pt) * dd, T.y + Math.sin(pt) * dd, T.z + Math.cos(yw) * Math.cos(pt) * dd);
       camera.up.set(0, 1, 0); camera.lookAt(T);
       // with Ruth in the room, the push toward her eye is the camera itself moving in
-      if (ruth && st.eyeZoom > 0) { const e = ruthEye(), z = st.eyeZoom * st.eyeZoom * .9; camera.position.lerp(e, z * .95); camera.lookAt(v3.copy(T).lerp(e, Math.min(1, z * 1.6))); } camera.near = Math.max(.02, dd * .2); camera.far = dd + 12;
+      if (ruth && st.eyeZoom > 0 && !(keys.b2 && keys.b2.tex)) { const e = ruthEye(), z = st.eyeZoom * st.eyeZoom * .9; camera.position.lerp(e, z * .95); camera.lookAt(v3.copy(T).lerp(e, Math.min(1, z * 1.6))); } camera.near = Math.max(.02, dd * .2); camera.far = dd + 12;
       // the stone moves on screen from where it hung in the diorama to where it hangs in her photograph
       const qb = revToScreen(REV.stone.x, REV.stone.y);
       // as her photograph comes in, it holds its own box: only the real stone stays
       if (box) box.visible = ruth || capture.sharp ? true : st.swing < .7;
       camera.setViewOffset(W, H, (W / 2 - orbit.q0.x) * (1 - k) + (W / 2 - qb.x) * k, (H / 2 - orbit.q0.y) * (1 - k) + (H / 2 - qb.y) * k, W, H);
     }
-    camera.updateProjectionMatrix(); camera.updateMatrixWorld();
+    camera.updateProjectionMatrix();
+    // at the end of the swing on 3D Ruth, the view is the painting's own camera, whatever the screen's shape, so the
+    // painting sits exactly on the room (otherwise near things like the lamp show twice)
+    const endKey = ruth && keys.b2 && keys.b2.tex ? keys.b2 : null;
+    if (endKey && st.swing > 0) {
+      const k = THREE.MathUtils.smoothstep(st.swing, .8, 1);
+      if (k > 0) {
+        camera.position.lerp(endKey.cam.position, k); camera.quaternion.slerp(endKey.cam.quaternion, k);
+        const P = endKey.cam.projectionMatrix.clone(), aKey = endKey.cj.width / endKey.cj.height, aLive = W / H;
+        P.elements[0] *= aKey / aLive; P.elements[8] *= aKey / aLive;   // the same height of view; a wider screen sees more at the sides
+        if (k >= 1) { camera.near = endKey.cj.near; camera.far = endKey.cj.far; camera.projectionMatrix.copy(P); camera.projectionMatrixInverse.copy(P).invert(); }
+      }
+    }
+    camera.updateMatrixWorld();
     focus.uniforms.near.value = camera.near; focus.uniforms.far.value = camera.far;
     // the focus racks to where the pointer rests, or to the box when it is left alone
     const boxQ = stone ? toScreen(stone.position) : { x: W / 2, y: H / 2 };
@@ -487,7 +503,9 @@ export function createLab(canvas, opts = {}) {
     const e = revToScreen(REV.eye.x, REV.eye.y); plate.uniforms.eyeAt.value.set(e.x / W, 1 - e.y / H);
     canvas.style.opacity = st.fade;
     focus.uniforms.tDepth.value = composer.readBuffer.depthTexture;
-    turnBlur.uniforms.amt.value = Math.sin(Math.PI * Math.min(1, st.swing)) * .07; turnBlur.enabled = st.swing > .02 && st.swing < .98;
+    turnBlur.uniforms.amt.value = st.swing < .98 ? Math.sin(Math.PI * Math.min(1, st.swing)) * .07 : 0;
+    const pushOnPicture = ruth && keys.b2 && keys.b2.tex && st.eyeZoom > 0; turnBlur.uniforms.zoom.value = pushOnPicture ? st.eyeZoom : 0; if (pushOnPicture) { const q = eyeScreen(); turnBlur.uniforms.eyeAt.value.set(q.x / W, 1 - q.y / H); }
+    turnBlur.enabled = (st.swing > .02 && st.swing < .98) || pushOnPicture;
     if (proj.enabled) {
       depthCopy.uniforms.tDepth.value = composer.readBuffer.depthTexture; proj.uniforms.tDepth.value = depthCopyRT.texture; proj.uniforms.invProj.value.copy(camera.projectionMatrixInverse); proj.uniforms.camWorld.value.copy(camera.matrixWorld);
       for (const k of ['near', 'far', 'amount']) proj.uniforms[k].value = focus.uniforms[k].value; proj.uniforms.focusUv.value.copy(focus.uniforms.focusUv.value); proj.uniforms.resolution.value.copy(focus.uniforms.resolution.value);
