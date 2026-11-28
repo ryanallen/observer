@@ -249,10 +249,14 @@ export function createLab(canvas, opts = {}) {
       vec4 lay(vec3 w, sampler2D p, sampler2D d, mat4 vp, mat4 v, vec2 r) {
         vec4 c = vp * vec4(w, 1.0); if (c.w <= 0.0) return vec4(0.0);
         vec2 uv = c.xy / c.w * .5 + .5; if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec4(0.0);
-        float z = -(v * vec4(w, 1.0)).z, stored = texture2D(d, uv).r, seen = r.x + (1.0 - stored) * (r.y - r.x);
+        // the nearest of what its camera saw here and a texel round it, so the room's edges (where the screen and the
+        // painting sample the depth a pixel apart) never show a seam
+        float z = -(v * vec4(w, 1.0)).z, miss = 1e9; vec2 tx = 1.0 / vec2(textureSize(d, 0));
+        for (int j = 0; j < 5; j++) { vec2 o = j == 0 ? vec2(0.0) : j == 1 ? vec2(tx.x, 0.0) : j == 2 ? vec2(-tx.x, 0.0) : j == 3 ? vec2(0.0, tx.y) : vec2(0.0, -tx.y);
+          float stored = texture2D(d, uv + o).r; miss = min(miss, abs(z - (r.x + (1.0 - stored) * (r.y - r.x)))); }
         // where the live view sees nothing of the room (through the windows, past the cut) the painting shows as painted
-        float ok = farAway > .5 ? 1.0 : 1.0 - smoothstep(.015, .04, abs(z - seen) / z);
-        vec2 e = min(uv, 1.0 - uv); ok *= smoothstep(0.0, .03, min(e.x, e.y));
+        float ok = farAway > .5 ? 1.0 : 1.0 - smoothstep(.015, .04, miss / z);
+        vec2 e = min(uv, 1.0 - uv); ok *= smoothstep(0.0, .004, min(e.x, e.y));   // the framing keeps the view clear of this
         // the painting softened like the rest of the frame: sharp where the pointer rests, soft away from it
         vec2 px = vec2(1.0) / resolution * blurAt; vec3 col = vec3(0.0);
         for (int i = 0; i < 12; i++) { float a = float(i) * 2.39996323, rr = sqrt((float(i) + .5) / 12.0); col += texture2D(p, uv + px * rr * vec2(cos(a), sin(a))).rgb; }
@@ -286,11 +290,18 @@ export function createLab(canvas, opts = {}) {
     await Promise.all(names.map(async k => {
       const cj = await get(base + k + '_camera.json'); if (!cj) return;
       const key = keys[k] = { cam: keyCamera(cj), cj, tex: null, depth: null, range: cj.depthRange || [cj.near, cj.far] };
-      key.tex = await tl.loadAsync(base + k + '_paint.webp').catch(() => null); if (!key.tex) return;
+      // where the room has a plate without the box (lamp-on, open, firing), the box is the live 3D one, opening on its
+      // hinges over the plate; the painting with the box in it is the fallback
+      const plain = ['a', 'open', 'c'].includes(k) ? await tl.loadAsync(base + k + '_nobox.webp').catch(() => null) : null;
+      key.liveBox = !!plain || (opts.liveBox && ['a', 'open', 'c'].includes(k));
+      key.tex = plain || await tl.loadAsync(base + k + '_paint.webp').catch(() => null); if (!key.tex) return;
       key.tex.minFilter = THREE.LinearFilter; key.tex.generateMipmaps = false;
-      key.depth = new THREE.WebGLRenderTarget(cj.width, cj.height); keyDepth(key);
+      key.depth = new THREE.WebGLRenderTarget(cj.width, cj.height, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter }); keyDepth(key);
       key.vp = new THREE.Matrix4().multiplyMatrices(key.cam.projectionMatrix, key.cam.matrixWorldInverse);
     }));
+    // the lamp-on and box-open paintings share a camera and the view rests on the first's framing: keep it inside both
+    const sa = keys.a && keys.a.cj.solid, so = keys.open && keys.open.cj.solid;
+    if (sa && so && sa.solid.length === so.solid.length) { sa.solid = Array.from(sa.solid, (c, i) => c === '1' && so.solid[i] === '1' ? '1' : '0').join(''); keys.a.win = null; }
     proj.enabled = depthCopy.enabled = Object.values(keys).some(k => k.tex);
   };
   // what a key frame's camera saw, as depth; redone when Ruth comes into the room, so her painting lands on her
@@ -302,10 +313,70 @@ export function createLab(canvas, opts = {}) {
     scene.overrideMaterial = depthMat; scene.background = new THREE.Color(0); renderer.toneMapping = THREE.NoToneMapping; halo.visible = false; beam.visible = false; if (stone) stone.visible = false;
     photonSprites.forEach(sp => sp.visible = false);   // sprites would print as solid squares in the depth
     const rv = ruth && ruth.visible; if (ruth) ruth.visible = true;   // she stands in the end frames whichever loads first
+    const bv = box && box.visible; if (box && key.liveBox) box.visible = false;   // left out, so the live box shows over the plate
     renderer.setRenderTarget(key.depth); renderer.clear(); renderer.render(scene, key.cam); renderer.setRenderTarget(null);
-    if (ruth) ruth.visible = rv; photonSprites.forEach(sp => sp.visible = true);
+    if (ruth) ruth.visible = rv; if (box) box.visible = bv; photonSprites.forEach(sp => sp.visible = true);
     scene.overrideMaterial = old; scene.background = bg; renderer.toneMapping = tm; halo.visible = true; beam.visible = true; if (stone) stone.visible = sv; glass.forEach(o => o.visible = true);
   }
+  // a key frame's camera, zoomed so the screen shows only the solid part of its painting (never the black past the room's
+  // cut or the painting's edge), at the screen's own shape, with room left for the pointer's shift; the shift slides the
+  // view inside that room
+  // the pointer's shift, as a share of the window kept solid: the view is that much smaller than the window on each side,
+  // and slides at most that far (about 2% of the frame)
+  const SHIFT_ROOM = .045;
+  const frameKey = (key, sx = 0, sy = 0) => {
+    const cj = key.cj, sol = cj.solid, aS = W / H;
+    if ((!key.win || key.winAspect !== aS) && cj.core) {
+      // a wide painting (room all through, the original composition at "core" inside it): the view holds the whole
+      // original where the screen's shape allows, and otherwise the most of it that fits inside the painting with room
+      // for the shift, centred on the beat's subject
+      const [ox, oy, cw, ch] = cj.core, aP = cj.width / cj.height;
+      let hx = Math.max(cw, ch * aS) / cj.width, hy = hx * aP / aS;
+      const E = .985, k = Math.min(1, E / (hx * (1 + SHIFT_ROOM)), E / (hy * (1 + SHIFT_ROOM))); hx *= k; hy *= k;
+      const fx = cj.focus ? cj.focus[0] / cj.width * 2 - 1 : (ox + cw / 2) / cj.width * 2 - 1, fy = cj.focus ? 1 - cj.focus[1] / cj.height * 2 : 1 - (oy + ch / 2) / cj.height * 2;
+      // the original's own centre where it is all shown, sliding toward the subject as the view closes in
+      const ccx = (ox + cw / 2) / cj.width * 2 - 1, ccy = 1 - (oy + ch / 2) / cj.height * 2, t = 1 - Math.min(1, hx * cj.width / cw, hy * cj.height / ch);
+      const lx = E - hx * (1 + SHIFT_ROOM), ly = E - hy * (1 + SHIFT_ROOM);
+      const cx = Math.max(-lx, Math.min(lx, ccx + (fx - ccx) * t)), cy = Math.max(-ly, Math.min(ly, ccy + (fy - ccy) * t));
+      key.win = { cx, cy, hx, hy, mx: hx * SHIFT_ROOM, my: hy * SHIFT_ROOM }; key.winAspect = aS;
+    }
+    if (!key.win || key.winAspect !== aS) {
+      const gw = sol ? sol.w : 64, gh = sol ? sol.h : 36;
+      // solid cells, less one cell all round where the room ends (an edge cell can be partly past it)
+      const raw = (x, y) => x >= 0 && y >= 0 && x < gw && y < gh && (!sol || sol.solid[y * gw + x] === '1');
+      const okGrid = new Uint8Array(gw * gh);
+      for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+        let o = raw(x, y); if (sol) for (let dy = -1; dy <= 1 && o; dy++) for (let dx = -1; dx <= 1 && o; dx++) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < gw && Y < gh && !raw(X, Y)) o = false; }
+        okGrid[y * gw + x] = o ? 1 : 0;
+      }
+      // a summed table, so any window's count of bad cells is four lookups
+      const bad = new Int32Array((gw + 1) * (gh + 1));
+      for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) bad[(y + 1) * (gw + 1) + x + 1] = (1 - okGrid[y * gw + x]) + bad[y * (gw + 1) + x + 1] + bad[(y + 1) * (gw + 1) + x] - bad[y * (gw + 1) + x];
+      const badIn = (x, y, w, h) => bad[(y + h) * (gw + 1) + x + w] - bad[y * (gw + 1) + x + w] - bad[(y + h) * (gw + 1) + x] + bad[y * (gw + 1) + x];
+      const aP = cj.width / cj.height, fx = (cj.focus ? cj.focus[0] / cj.width : .5) * gw, fy = (cj.focus ? cj.focus[1] / cj.height : .5) * gh;
+      // the largest window of the screen's exact shape that is solid all through, nearest the beat's subject; its cells
+      // are counted rounded outward, so the window shown is always inside solid cells
+      let best = null;
+      for (let wc = gw; wc >= 2 && !best; wc--) {
+        const hExact = wc / aS * (gh / gw) * aP, hc = Math.ceil(hExact - 1e-6);
+        if (hc > gh) continue;
+        let d0 = 1e9;
+        for (let y = 0; y + hc <= gh; y++) for (let x = 0; x + wc <= gw; x++) {
+          if (badIn(x, y, wc, hc)) continue;
+          const d = (x + wc / 2 - fx) ** 2 + (y + hc / 2 - fy) ** 2; if (d < d0) { d0 = d; best = [x + wc / 2, y + hc / 2, wc, hExact]; }
+        }
+      }
+      // no solid window at all (no mask): the whole painting, cover-fitted to the screen
+      if (!best) { const wc = Math.min(gw, gh * aS / aP * (gw / gh)); best = [gw / 2, gh / 2, wc, wc / aS * (gh / gw) * aP]; }
+      // in the painting's NDC: centre and the window's half size (the screen's shape exactly)
+      const cx = best[0] / gw * 2 - 1, cy = 1 - best[1] / gh * 2, hx = best[2] / gw, hy = best[3] / gh;
+      key.win = { cx, cy, hx: hx * (1 - SHIFT_ROOM), hy: hy * (1 - SHIFT_ROOM), mx: hx * SHIFT_ROOM, my: hy * SHIFT_ROOM }; key.winAspect = aS;
+    }
+    // the shift slides the view inside the window, never past it
+    const { hx, hy, mx, my } = key.win, cx = key.win.cx + Math.max(-1, Math.min(1, sx)) * mx, cy = key.win.cy + Math.max(-1, Math.min(1, sy)) * my;
+    const T = new THREE.Matrix4().set(1 / hx, 0, 0, -cx / hx, 0, 1 / hy, 0, -cy / hy, 0, 0, 1, 0, 0, 0, 0, 1);
+    return T.multiply(key.cam.projectionMatrix.clone());
+  };
   const setSlot = (slot, key, w) => { const u = proj.uniforms; u['w' + slot].value = key ? w : 0; if (!key) return;
     u['p' + slot].value = key.tex; u['d' + slot].value = key.depth.texture; u['vp' + slot].value.copy(key.vp); u['v' + slot].value.copy(key.cam.matrixWorldInverse); u['r' + slot].value.set(key.range[0], key.range[1]); };
   const focus = new ShaderPass({
@@ -388,7 +459,7 @@ export function createLab(canvas, opts = {}) {
     ruth.position.set(0, 0, .09); ruth.rotation.set(0, 0, 0); ruth.updateMatrixWorld(true);
   };
 
-  let frameW = VIEW.width, dist = 30, coverX = 1, coverY = 1, fovBase = VIEW.fov;
+  let frameW = VIEW.width, dist = 30, coverX = 1, coverY = 1, fovBase = VIEW.fov, framedP = null;
   const resize = () => {
     W = canvas.clientWidth || innerWidth; H = canvas.clientHeight || innerHeight;
     renderer.setSize(W, H, false); composer.setSize(W, H); depthCopyRT.setSize(Math.round(W * renderer.getPixelRatio()), Math.round(H * renderer.getPixelRatio()));
@@ -418,8 +489,15 @@ export function createLab(canvas, opts = {}) {
       camera.position.copy(base).addScaledVector(right, sx).addScaledVector(up, sy);
       camera.up.set(0, 1, 0); camera.lookAt(VIEW.target.clone().addScaledVector(right, sx * .35).addScaledVector(up, sy * .35));
       camera.fov = fovBase; camera.near = dist * .6; camera.far = dist * 1.6; camera.clearViewOffset(); orbit = null; if (box) box.visible = true;
-      // for the firing the view draws back to the whole lab, frame C's camera
-      if (st.wide > 0 && keys.c) { const k = st.wide * st.wide * (3 - 2 * st.wide), c = keys.c.cam;
+      // resting on a painting: its own camera, framed to its solid part; for the firing, over to frame C's
+      if (keys.a && keys.a.tex) {
+        const ka = keys.a, kc = keys.c && keys.c.tex ? keys.c : null, k = kc ? st.wide * st.wide * (3 - 2 * st.wide) : 0;
+        camera.position.copy(ka.cam.position); camera.quaternion.copy(ka.cam.quaternion);
+        const P = frameKey(ka, view.x, -view.y);
+        if (kc && k > 0) { camera.position.lerp(kc.cam.position, k); camera.quaternion.slerp(kc.cam.quaternion, k); const Pc = frameKey(kc, view.x, -view.y); for (let i = 0; i < 16; i++) P.elements[i] += (Pc.elements[i] - P.elements[i]) * k; }
+        camera.near = (kc ? ka.cj.near + (kc.cj.near - ka.cj.near) * k : ka.cj.near); camera.far = (kc ? ka.cj.far + (kc.cj.far - ka.cj.far) * k : ka.cj.far);
+        framedP = P;
+      } else if (st.wide > 0 && keys.c) { const k = st.wide * st.wide * (3 - 2 * st.wide), c = keys.c.cam;
         camera.position.lerp(c.position, k); camera.quaternion.slerp(c.quaternion, k); camera.fov += (keys.c.cj.fov - camera.fov) * k;
         camera.near += (keys.c.cj.near - camera.near) * k; camera.far += (keys.c.cj.far - camera.far) * k; }
     } else {
@@ -448,6 +526,8 @@ export function createLab(canvas, opts = {}) {
       camera.setViewOffset(W, H, (W / 2 - orbit.q0.x) * (1 - k) + (W / 2 - qb.x) * k, (H / 2 - orbit.q0.y) * (1 - k) + (H / 2 - qb.y) * k, W, H);
     }
     camera.updateProjectionMatrix();
+    if (framedP && st.swing <= 0) { camera.projectionMatrix.copy(framedP); camera.projectionMatrixInverse.copy(framedP).invert(); }
+    framedP = null;
     // at the end of the swing on 3D Ruth, the view is the painting's own camera, whatever the screen's shape, so the
     // painting sits exactly on the room (otherwise near things like the lamp show twice)
     const endKey = ruth && keys.b2 && keys.b2.tex ? keys.b2 : null;
@@ -455,8 +535,7 @@ export function createLab(canvas, opts = {}) {
       const k = THREE.MathUtils.smoothstep(st.swing, .8, 1);
       if (k > 0) {
         camera.position.lerp(endKey.cam.position, k); camera.quaternion.slerp(endKey.cam.quaternion, k);
-        const P = endKey.cam.projectionMatrix.clone(), aKey = endKey.cj.width / endKey.cj.height, aLive = W / H;
-        P.elements[0] *= aKey / aLive; P.elements[8] *= aKey / aLive;   // the same height of view; a wider screen sees more at the sides
+        const P = frameKey(endKey, view.x, -view.y);   // framed to its solid part, as at every beat
         if (k >= 1) { camera.near = endKey.cj.near; camera.far = endKey.cj.far; camera.projectionMatrix.copy(P); camera.projectionMatrixInverse.copy(P).invert(); }
       }
     }
@@ -552,7 +631,7 @@ export function createLab(canvas, opts = {}) {
     if (!(ruth && ruth.visible)) return revToScreen(REV.eye.x, REV.eye.y);
     const k = keys.b2 && keys.b2.tex ? keys.b2 : null;
     // landed on her painting, the view is its camera: the pupil is exactly where it is in the painting, on any screen
-    if (k && st.swing >= 1) { const aK = k.cj.width / k.cj.height, aL = W / H, nx = (PAINTED_EYE.x / k.cj.width * 2 - 1) * aK / aL, ny = 1 - PAINTED_EYE.y / k.cj.height * 2;
+    if (k && st.swing >= 1) { frameKey(k); const wn = k.win, nx = ((PAINTED_EYE.x / k.cj.width * 2 - 1) - wn.cx) / wn.hx, ny = ((1 - PAINTED_EYE.y / k.cj.height * 2) - wn.cy) / wn.hy;
       return { x: (nx * .5 + .5) * W, y: (-ny * .5 + .5) * H }; }
     const live = ruthEye(), painted = k ? paintedEye() : null;
     return toScreen(painted ? live.lerp(painted, THREE.MathUtils.smoothstep(st.swing, .6, 1)) : live);
@@ -574,7 +653,8 @@ export function createLab(canvas, opts = {}) {
   };
   // for the projection test: frames with no blur, and the depth seen from the same camera
   const capture = { sharp: false, depth: null, noStone: false };
-  const depthMat = new THREE.ShaderMaterial({ uniforms: { zNear: { value: 1 }, zFar: { value: 30 } }, clipping: true,
+  // both sides, as the room's own materials are: where the cut opens a wall or the floor, the live view sees their insides
+  const depthMat = new THREE.ShaderMaterial({ uniforms: { zNear: { value: 1 }, zFar: { value: 30 } }, clipping: true, side: THREE.DoubleSide,
     vertexShader: `#include <common>
       #include <skinning_pars_vertex>
       #include <clipping_planes_pars_vertex>
