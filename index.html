@@ -104,9 +104,9 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     burst: 0,         // the lines bursting out, bouncing round the room and settling into the steeple's outline, 0 to 1
     sunset: 0,        // the sunset glow blooming behind the steeple's outline, 0 to 1
     steeple: 0,       // the steeple's inside darkening to black against it, 0 to 1
-    eyeImg: 0,        // her eye, close, with the steeple in its iris, 0 to 1
-    iris: 0,          // all round the iris going black, 0 to 1
-    lens: 0,          // inside the iris, the field glasses' view coming in, 0 to 1
+    vid: 0,           // the push into her eye, the iris melting to rainbow (a video), faded in over the room, 0 to 1
+    flick: 0,         // the steeple flickering between her pupil and the field glasses' lens, 0 to 1
+    out: 0,           // the view pulling out of the glasses into Blake's study, 0 to 1
     clear: 0,         // the ring clearing it on a later heartbeat, 0 to 1
     lab: 0,           // the lab is showing
     pt: 0,            // the point's visibility
@@ -136,10 +136,10 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b60')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b61')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
-  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b60')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  const loadLab = () => labLoad || (labLoad = import('./lab.js?v=' + (q0.get('v') || 'b61')).then(m => { lab = m.createLab($('lab')); window.observerLab = lab; return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
@@ -216,6 +216,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     splash: ['audio/splash.mp3?v=1', 'sfx', .7], splash2: ['audio/splash.mp3?v=1', 'sfx', .45],
     bubbles: ['audio/bubbles-loop.mp3?v=1', 'bed', .35, true], deep: ['audio/deep-loop.mp3?v=1', 'bed', .55, true],
     blake: ['audio/voice-ruth-blake.mp3?v=1', 'voice', 1],   // Ruth, scared, as the steeple forms in her eye
+    iris: ['audio/iris-rise.mp3?v=1', 'sfx', .9],   // the hurdy-gurdy and waterphone swelling into echoes; its peak at 4.2 s
   };
   for (const [line, u] of Object.entries(VOICE)) SOUNDS[line] = [u, 'voice', 1];
   const buf = {}, live = {}, byUrl = {}, failed = {}, elems = {};
@@ -436,12 +437,17 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const img = u => { const i = new Image(); i.decoding = 'async'; i.src = u; return i; };
   let p4 = null;   // its images and the steeple's outline, loaded once P.3 starts firing
   const loadP4 = () => p4 || (p4 = (async () => {
-    const eye = img('models/web/ruth_eye.webp'), lens = img('models/web/steeple_lens.webp');
+    // the push into her eye is a short video (her iris melting to rainbow), drawn to the canvas: it plays the same on a
+    // phone and without a graphics card; then Blake's field glasses and his study
+    const vid = document.createElement('video'); vid.muted = true; vid.playsInline = true; vid.setAttribute('playsinline', ''); vid.preload = 'auto'; vid.src = 'models/web/iris_zoom.mp4';
+    const ep = img('models/web/study_eyepiece.webp'), wide = img('models/web/study_wide.webp');
     const outline = await fetch('models/web/steeple_outline.json').then(r => r.json()).catch(() => []);
-    await Promise.all([eye.decode().catch(() => {}), lens.decode().catch(() => {})]);
-    return { eye, lens, outline };
+    await Promise.all([ep.decode().catch(() => {}), wide.decode().catch(() => {}),
+      new Promise(r => { if (vid.readyState >= 3) r(); else { vid.addEventListener('canplaythrough', r, { once: true }); setTimeout(r, 6000); } })]);
+    return { vid, ep, wide, outline };
   })());
-  const IRIS = { x: 837, y: 527, r: 187 }, LENS = { x: 834.4, y: 465.3, r: 238.4 };   // in their photographs' pixels (1672 x 941)
+  // the field glasses' near lens in the close photograph, and the same lens on the desk in the wide one (pixels of 1672 x 941)
+  const EP = { x: 833, y: 470, r: 160 }, WIDE = { x: 827, y: 485, r: 6.5 };   // study_wide_fullbleed_b, the near eyepiece
   const burstLines = Array.from({ length: 36 }, (_, i) => ({ a: i / 36 * Math.PI * 2 + Math.random() * .2, sp: .9 + Math.random() * .7, trail: [] }));
   // where a 1672 x 941 photograph shows when it covers the screen
   const coverOf = () => { const sc = Math.max(W / 1672, H / 941); return { sc, ox: (W - 1672 * sc) / 2, oy: (H - 941 * sc) / 2 }; };
@@ -452,9 +458,9 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     const P = p4Ready;
     g.save();
     // the line into her eye, then the burst: bright lines like the opening's, bouncing off the edges, settling onto the outline
-    if ((S.shot > 0 || S.burst > 0) && lab && S.lab > 0 && S.eyeImg < 1) {
+    if ((S.shot > 0 || S.burst > 0) && lab && S.lab > 0 && S.vid < 1) {
       const from = lab.stoneScreen(), eye = lab.eyeScreen();
-      g.globalAlpha = (1 - S.eyeImg) * (1 - ease01(lab.st.eyeZoom * 1.6));   // the room's lines and steeple give way to her eye
+      g.globalAlpha = 1 - ease01(lab.st.eyeZoom * 1.6);   // the room's lines and steeple give way to her eye
       g.globalCompositeOperation = 'lighter'; g.lineCap = 'round';
       if (S.shot > 0 && S.burst < .3) {
         const k = Math.min(1, S.shot), x = from.x + (eye.x - from.x) * k, y = from.y + (eye.y - from.y) * k, fadeL = 1 - S.burst / .3;
@@ -505,28 +511,35 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
         }
       }
     }
-    // her eye, close, then the iris holding while everything round it goes black and its inside becomes the glasses' view
-    if (S.eyeImg > 0) {
+    // her eye: the video, covering the screen; its last frame has the pupil (and the steeple in it) centred
+    if (S.vid > 0) {
       g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
-      const c = coverOf(), z = 1 + .25 * (1 - ease01(S.eyeImg)), ix = c.ox + IRIS.x * c.sc, iy = c.oy + IRIS.y * c.sc;
-      g.globalAlpha = S.eyeImg;
-      g.translate(ix, iy); g.scale(z, z); g.translate(-ix, -iy);
-      g.drawImage(P.eye, c.ox, c.oy, 1672 * c.sc, 941 * c.sc);
-      g.setTransform(D, 0, 0, D, 0, 0); g.globalAlpha = 1;
-      const r = IRIS.r * c.sc;
-      if (S.lens > 0) {
-        g.save(); g.beginPath(); g.arc(ix, iy, r, 0, 7); g.clip();
-        const k = r / LENS.r; g.globalAlpha = S.lens;
-        g.drawImage(P.lens, ix - LENS.x * k, iy - LENS.y * k, 1672 * k, 941 * k);
-        g.restore();
-      }
-      if (S.iris > 0) {
-        g.fillStyle = `rgba(0,0,0,${S.iris})`; g.beginPath(); g.rect(0, 0, W, H); g.moveTo(ix + r, iy); g.arc(ix, iy, r, 0, Math.PI * 2, true); g.closePath(); g.fill('evenodd');
+      const vsc = Math.max(W / 960, H / 540), vw = 960 * vsc, vh = 540 * vsc;
+      const pupilR = .24 * vh, cx2 = W / 2, cy2 = H / 2;
+      // the field glasses' lens laid exactly on the pupil, then the view pulling out of the glasses into the study
+      const epAt = k => { const kc = Math.max(W / 1672, H / 941), k0 = pupilR / EP.r, kk = k0 + (kc - k0) * k;
+        const x0 = cx2 - EP.x * k0, y0 = cy2 - EP.y * k0, x1 = (W - 1672 * kc) / 2, y1 = (H - 941 * kc) / 2;
+        return { k: kk, x: x0 + (x1 - x0) * k, y: y0 + (y1 - y0) * k }; };
+      const showEp = S.flick > 0 && (S.flick >= 1 || Math.floor(S.flick * 16) % 2 === 1);
+      if (!showEp && S.out <= 0) { g.globalAlpha = S.vid; g.drawImage(P.vid, cx2 - vw / 2, cy2 - vh / 2, vw, vh); g.globalAlpha = 1; }
+      if (showEp || S.out > 0) {
+        const e = epAt(ease01(Math.min(1, S.out / .4)));
+        g.drawImage(P.ep, e.x, e.y, 1672 * e.k, 941 * e.k);
+        if (S.out > .4) {
+          // the same lens on the desk in the wide photograph, then out to the whole room
+          const kc = Math.max(W / 1672, H / 941), ex = e.x + EP.x * e.k, ey = e.y + EP.y * e.k, er = EP.r * e.k;
+          const z = ease01((S.out - .4) / .6), kw0 = er / WIDE.r, kw = kw0 + (kc - kw0) * z;
+          const wx0 = ex - WIDE.x * kw0, wy0 = ey - WIDE.y * kw0, wx1 = (W - 1672 * kc) / 2, wy1 = (H - 941 * kc) / 2;
+          g.globalAlpha = ease01((S.out - .4) / .12);
+          g.drawImage(P.wide, wx0 + (wx1 - wx0) * z, wy0 + (wy1 - wy0) * z, 1672 * kw, 941 * kw);
+          g.globalAlpha = 1;
+        }
       }
     }
     g.restore();
   };
   let p4Ready = null;
+  const P4vid = () => p4Ready.vid;
   // a promise kept on the next heartbeat
   const beatWaiters = [];
   const onBeat = () => new Promise(r => beatWaiters.push(r));
@@ -1038,16 +1051,22 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     play('blake');
     await tween('steeple', 1, 900);
     await wait(1400);
-    // close on her eye: the steeple in its iris
+    // close on her eye: the sound swells so its peak lands on the flicker, 4.2 s from now (the video starts in 1.2 s, runs 3 s)
+    play('iris');
     tweenOn(lab.st, 'eyeZoom', 1, 1500);
     await wait(800);
-    await tween('eyeImg', 1, 900);
+    P4vid().currentTime = 0;
+    await tween('vid', 1, 400);
     // the lab is done: let it go
     S.lab = 0; S.pt = 0; release('blake'); lab.dispose(); $('lab').remove(); lab = null; window.observerLab = null;
-    await wait(1600);
-    // the circle holds; everything round it goes dark, and inside it is now the circle of a pair of field glasses
-    tween('iris', 1, 1100);
-    await tween('lens', 1, 1600);
+    await P4vid().play().catch(() => {});
+    await new Promise(r => { const v = P4vid(); if (v.ended) r(); else { v.addEventListener('ended', r, { once: true }); setTimeout(r, 3600); } });
+    // the steeple in her pupil flickers, fast, in and out with the field glasses' lens, then holds on the glasses
+    await tween('flick', 1, 600, k => k);
+    await wait(500);
+    // the view pulls out of the glasses into Blake's study
+    await tween('out', 1, 5200, k => k);
+    release('iris');
   }
 })();
 </script>
