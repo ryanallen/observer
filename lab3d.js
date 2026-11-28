@@ -18,7 +18,7 @@ const OPEN_ANGLE = .72;   // the panels tipped out into a crown, as wide as in t
 // the photon bench behind; a long lens for the miniature look
 const VIEW = { dir: new THREE.Vector3(-Math.sin(.66) * Math.cos(.7), Math.sin(.7), Math.cos(.66) * Math.cos(.7)), target: new THREE.Vector3(.05, .76, .7), width: 8.2, fov: 14 };
 // Ruth's side, her photograph: where the stone hangs in it, how wide it shows (75 mm), where her eye is
-const REV = { w: 1672, h: 941, stone: { x: 853, y: 290 }, stoneW: 98, eye: { x: 557, y: 152 } };
+const REV = { w: 1672, h: 941, stone: { x: 853, y: 290 }, stoneW: 98, eye: { x: 617, y: 149 } };
 
 export function createLab(canvas, opts = {}) {
   // for tuning: ?view=yaw,pitch,width[,x,y,z] (degrees, degrees, metres, and the point looked at)
@@ -63,7 +63,7 @@ export function createLab(canvas, opts = {}) {
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(.004, .004, 1, 6, 1, true), beamMat); scene.add(beam);
   const photonSprites = Array.from({ length: 3 }, () => { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, color: 0xffe0c0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 })); scene.add(sp); return sp; });
 
-  const st = { lamp: 0, open: 0, lift: 0, flash: 0, pulse: 0, swing: 0, eyeZoom: 0, fade: 1, beam: 0, wide: 0 };
+  const st = { lamp: 0, open: 0, lift: 0, flash: 0, pulse: 0, swing: 0, eyeZoom: 0, eyeBlur: 0, fade: 1, beam: 0, wide: 0 };
   const nodes = {};
   let bulbMat = null, box = null, stone = null, gemMat = null, glowAt = null, stoneFrom = new THREE.Vector3(), stoneHang = new THREE.Vector3();
   const hinges = [], emissive = { monitor: null, indicators: [] };
@@ -348,12 +348,12 @@ export function createLab(canvas, opts = {}) {
   composer.addPass(new OutputPass());
   composer.addPass(proj);
   // the turn itself: a fast sideways blur, strongest in the middle of the swing, as the plate lab has it
-  const turnBlur = new ShaderPass({ uniforms: { tDiffuse: { value: null }, amt: { value: 0 }, zoom: { value: 0 }, eyeAt: { value: new THREE.Vector2(.5, .5) } },
+  const turnBlur = new ShaderPass({ uniforms: { tDiffuse: { value: null }, amt: { value: 0 }, zoom: { value: 0 }, eyeBlur: { value: 0 }, eyeAt: { value: new THREE.Vector2(.5, .5) } },
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: `uniform sampler2D tDiffuse; uniform float amt, zoom; uniform vec2 eyeAt; varying vec2 vUv; void main() {
+    fragmentShader: `uniform sampler2D tDiffuse; uniform float amt, zoom, eyeBlur; uniform vec2 eyeAt; varying vec2 vUv; void main() {
       // and the push toward Ruth's eye over her painting, done on the finished picture so the painting stays on the room
-      vec2 s = eyeAt + (vUv - eyeAt) / (1.0 + 5.0 * zoom * zoom);
-      vec3 acc = vec3(0.0); for (int i = 0; i < 14; i++) acc += texture2D(tDiffuse, s + vec2(amt * (float(i) / 13.0 - .5), 0.0)).rgb;
+      vec2 shown = mix(eyeAt, vec2(.5), smoothstep(0.0, 1.0, zoom));   // her eye comes to the middle of the screen as it nears
+      vec3 acc = vec3(0.0); for (int i = 0; i < 14; i++) { float f = float(i) / 13.0; vec2 q = shown + (vUv - shown) * (1.0 - eyeBlur * .35 * f), p = eyeAt + (q - shown) / (1.0 + 26.0 * zoom * zoom); acc += texture2D(tDiffuse, p + vec2(amt * (f - .5), 0.0)).rgb; }
       gl_FragColor = vec4(acc / 14.0, 1.0); }` });
   turnBlur.enabled = false; composer.addPass(turnBlur);
 
@@ -440,7 +440,7 @@ export function createLab(canvas, opts = {}) {
       camera.position.set(T.x + Math.sin(yw) * Math.cos(pt) * dd, T.y + Math.sin(pt) * dd, T.z + Math.cos(yw) * Math.cos(pt) * dd);
       camera.up.set(0, 1, 0); camera.lookAt(T);
       // with Ruth in the room, the push toward her eye is the camera itself moving in
-      if (ruth && st.eyeZoom > 0 && !(keys.b2 && keys.b2.tex)) { const e = ruthEye(), z = st.eyeZoom * st.eyeZoom * .9; camera.position.lerp(e, z * .95); camera.lookAt(v3.copy(T).lerp(e, Math.min(1, z * 1.6))); } camera.near = Math.max(.02, dd * .2); camera.far = dd + 12;
+      camera.near = Math.max(.02, dd * .2); camera.far = dd + 12;
       // the stone moves on screen from where it hung in the diorama to where it hangs in her photograph
       const qb = revToScreen(REV.stone.x, REV.stone.y);
       // as her photograph comes in, it holds its own box: only the real stone stays
@@ -499,12 +499,14 @@ export function createLab(canvas, opts = {}) {
     moon.intensity = 1.0 + .4 * st.lamp; fill.intensity = .12 * (1 - .35 * st.lamp);
     // Ruth's photograph over the end of the orbit
     plate.uniforms.mixB.value = plate.uniforms.reverse.value ? THREE.MathUtils.smoothstep(st.swing, .72, 1) : 0;
-    plate.uniforms.eyeZoom.value = st.eyeZoom;
+    plate.uniforms.eyeZoom.value = 0;   // the push is done on the finished picture
     const e = revToScreen(REV.eye.x, REV.eye.y); plate.uniforms.eyeAt.value.set(e.x / W, 1 - e.y / H);
     canvas.style.opacity = st.fade;
     focus.uniforms.tDepth.value = composer.readBuffer.depthTexture;
     turnBlur.uniforms.amt.value = st.swing < .98 ? Math.sin(Math.PI * Math.min(1, st.swing)) * .07 : 0;
-    const pushOnPicture = ruth && keys.b2 && keys.b2.tex && st.eyeZoom > 0; turnBlur.uniforms.zoom.value = pushOnPicture ? st.eyeZoom : 0; if (pushOnPicture) { const q = eyeScreen(); turnBlur.uniforms.eyeAt.value.set(q.x / W, 1 - q.y / H); }
+    // her painting, model or photograph: the push into her eye is done on the finished picture
+    const pushOnPicture = st.swing >= 1 && st.eyeZoom > 0;
+    turnBlur.uniforms.zoom.value = pushOnPicture ? st.eyeZoom : 0; turnBlur.uniforms.eyeBlur.value = pushOnPicture ? st.eyeBlur : 0; if (pushOnPicture) { const q = eyeScreen(); turnBlur.uniforms.eyeAt.value.set(q.x / W, 1 - q.y / H); }
     turnBlur.enabled = (st.swing > .02 && st.swing < .98) || pushOnPicture;
     if (proj.enabled) {
       depthCopy.uniforms.tDepth.value = composer.readBuffer.depthTexture; proj.uniforms.tDepth.value = depthCopyRT.texture; proj.uniforms.invProj.value.copy(camera.projectionMatrixInverse); proj.uniforms.camWorld.value.copy(camera.matrixWorld);
@@ -537,7 +539,24 @@ export function createLab(canvas, opts = {}) {
   const revToScreen = (px, py) => ({ x: ((px / REV.w - .5) / coverX + .5) * W, y: ((py / REV.h - .5) / coverY + .5) * H });
   // her eye: on her model, a little in front of the head bone; on her photograph, where it is in the picture
   const ruthEye = () => { const e = (ruthHead || ruth).getWorldPosition(new THREE.Vector3()); e.y += .06; const toStone = stone ? stone.position.clone().sub(e).setY(0).normalize() : new THREE.Vector3(0, 0, -1); return e.add(toStone.multiplyScalar(.1)); };
-  const eyeScreen = () => ruth && ruth.visible ? toScreen(ruthEye()) : revToScreen(REV.eye.x, REV.eye.y);
+  // her eye in her painting, the one nearer the stone (B2's pixels), placed in the room on the ray from B2's camera at the
+  // distance of her head; the line from the stone ends there once the swing has landed on the painting
+  const PAINTED_EYE = { x: 752, y: 195 };   // the pupil
+  const paintedEye = () => {
+    const k = keys.b2; if (!k) return null;
+    const ndc = new THREE.Vector3(PAINTED_EYE.x / k.cj.width * 2 - 1, 1 - PAINTED_EYE.y / k.cj.height * 2, .5).unproject(k.cam);
+    const o = k.cam.position, dir = ndc.sub(o).normalize(), d = (ruthHead || ruth).getWorldPosition(new THREE.Vector3()).distanceTo(o);
+    return o.clone().addScaledVector(dir, d - .08);
+  };
+  const eyeScreen = () => {
+    if (!(ruth && ruth.visible)) return revToScreen(REV.eye.x, REV.eye.y);
+    const k = keys.b2 && keys.b2.tex ? keys.b2 : null;
+    // landed on her painting, the view is its camera: the pupil is exactly where it is in the painting, on any screen
+    if (k && st.swing >= 1) { const aK = k.cj.width / k.cj.height, aL = W / H, nx = (PAINTED_EYE.x / k.cj.width * 2 - 1) * aK / aL, ny = 1 - PAINTED_EYE.y / k.cj.height * 2;
+      return { x: (nx * .5 + .5) * W, y: (-ny * .5 + .5) * H }; }
+    const live = ruthEye(), painted = k ? paintedEye() : null;
+    return toScreen(painted ? live.lerp(painted, THREE.MathUtils.smoothstep(st.swing, .6, 1)) : live);
+  };
   const setPointer = (x, y) => { pointerActive = true; look.x = x; look.y = y; };
   const holdFocus = (x, y) => { heldFocus = x == null ? null : { x, y }; };
   // the machine: the page sets how bright the monitor and each indicator are, 0 to 1

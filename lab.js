@@ -13,7 +13,7 @@ const OPEN_ANGLE = .42;
 const LIGHTS = 24;
 // P.4, the look back: Ruth's side of the room. Where the stone hangs in that photograph (in the air over the crown), how
 // wide it shows there (75 mm), and where her eye is
-const REV = { w: 1672, h: 941, stone: { x: 853, y: 290 }, stoneW: 98, eye: { x: 557, y: 152 } };
+const REV = { w: 1672, h: 941, stone: { x: 853, y: 290 }, stoneW: 98, eye: { x: 617, y: 149 } };
 
 export function createLab(canvas) {
   const mobile = matchMedia('(pointer: coarse)').matches;
@@ -98,7 +98,7 @@ export function createLab(canvas) {
     closed: { value: null }, dark: { value: null }, glowdark: { value: null }, depth: { value: null }, shift: { value: null }, boxTex: { value: boxTarget.texture },
     lampOff: { value: 0 },
     // the swing round the stone into Ruth's side, then the push toward her eye
-    reverse: { value: null }, revDepth: { value: null }, swing: { value: 0 }, eyeZoom: { value: 0 },
+    reverse: { value: null }, revDepth: { value: null }, swing: { value: 0 }, eyeZoom: { value: 0 }, eyeBlur: { value: 0 },
     stoneA: { value: new THREE.Vector2(.5, .5) }, stoneB: { value: new THREE.Vector2(.5, .5) }, eyeAt: { value: new THREE.Vector2(.5, .5) },
     // the stone's soft red halo, drawn into the room behind the box layer so the stone's dark silhouette stands against it
     stoneAt: { value: new THREE.Vector2(.5, .5) }, halo: { value: new THREE.Vector2(0, .06) },
@@ -113,7 +113,7 @@ export function createLab(canvas) {
   const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
     uniforms: u, depthTest: false, depthWrite: false,
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
-    fragmentShader: `uniform sampler2D closed, dark, glowdark, depth, shift, boxTex, reverse, revDepth; uniform float open, fade, lampOff, swing, eyeZoom; uniform vec2 stoneAt, halo, stoneA, stoneB, eyeAt; uniform vec2 cover, sceneCam, focusUv, resolution, boxAt; uniform vec3 lightPos[${LIGHTS}]; uniform vec4 lightCol[${LIGHTS}]; varying vec2 vUv;
+    fragmentShader: `uniform sampler2D closed, dark, glowdark, depth, shift, boxTex, reverse, revDepth; uniform float open, fade, lampOff, swing, eyeZoom, eyeBlur; uniform vec2 stoneAt, halo, stoneA, stoneB, eyeAt; uniform vec2 cover, sceneCam, focusUv, resolution, boxAt; uniform vec3 lightPos[${LIGHTS}]; uniform vec4 lightCol[${LIGHTS}]; varying vec2 vUv;
       // the shift: the whole room moves about 2%, near parts a little more; the map is flattened so each thing moves as
       // one with the floor it stands on, and nothing slides over anything
       vec2 plateUv(vec2 s) { vec2 p = (s - .5) * cover + .5; float layer = texture2D(shift, p).r; return p - sceneCam * (${SHIFT_BASE.toFixed(2)} + ${SHIFT_DEPTH.toFixed(2)} * layer); }
@@ -138,7 +138,8 @@ export function createLab(canvas) {
           // the diorama rushes in toward the stone as the view turns, Ruth's side comes out of it, crossing at the middle
           float ea = smoothstep(0.0, .55, swing), eb = 1.0 - smoothstep(.45, 1.0, swing), wB = smoothstep(.4, .6, swing);
           vec2 sb = stoneB + (s - stoneB) / (1.0 + 3.0 * eb);
-          sb = eyeAt + (sb - eyeAt) / (1.0 + 5.0 * eyeZoom * eyeZoom);
+          // the push ends close on her iris, brought to the middle of the screen
+          sb = eyeAt + (sb - mix(eyeAt, vec2(.5), smoothstep(0.0, 1.0, eyeZoom))) / (1.0 + 26.0 * eyeZoom * eyeZoom);
           vec3 b = roomB(sb);
           c = wB >= 1.0 ? b : mix(roomA(stoneA + (s - stoneA) / (1.0 + 3.0 * ea)), b, wB);
         }
@@ -155,6 +156,15 @@ export function createLab(canvas) {
           vec3 acc = vec3(0.0);
           for (int i = 0; i < 14; i++) acc += scene(vUv + vec2(mb * (float(i) / 13.0 - .5), 0.0));
           gl_FragColor = vec4(acc / 14.0 * fade, 1.0);
+          #include <colorspace_fragment>
+          return;
+        }
+        // the push into her eye: a strong blur along the lines out from the eye while it moves
+        if (eyeBlur > .001) {
+          vec3 acc = vec3(0.0);
+          vec2 eyeShown = mix(eyeAt, vec2(.5), smoothstep(0.0, 1.0, eyeZoom));
+          for (int i = 0; i < 16; i++) acc += scene(eyeShown + (vUv - eyeShown) * (1.0 - eyeBlur * .35 * float(i) / 15.0));
+          gl_FragColor = vec4(acc / 16.0 * fade, 1.0);
           #include <colorspace_fragment>
           return;
         }
@@ -181,7 +191,7 @@ export function createLab(canvas) {
   const flat = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), photo = new THREE.Scene(); photo.add(quad);
 
   // lift: the stone rising out of the open box to hang a hand's width above it; flash: a photon striking it
-  const st = { lamp: 0, open: 0, lift: 0, flash: 0, pulse: 0, swing: 0, eyeZoom: 0, fade: 1 };
+  const st = { lamp: 0, open: 0, lift: 0, flash: 0, pulse: 0, swing: 0, eyeZoom: 0, eyeBlur: 0, fade: 1 };
   let stone = null, stoneBase = 0, stoneScale = 1, shiftPx = null, orbit = null;
   const stoneMeshes = new Set();
   const layerAt = (u, v) => { if (!shiftPx) return boxLayer; const x = Math.round(u * (shiftPx.w - 1)), y = Math.round(v * (shiftPx.h - 1)); return shiftPx.data[(y * shiftPx.w + x) * 4] / 255; };
@@ -263,7 +273,7 @@ export function createLab(canvas) {
     // the room's red swells on each heartbeat and eases back
     st.pulse *= Math.exp(-dt * 2.6);
     u.open.value = THREE.MathUtils.smoothstep(o, 0, 1) * (.8 + .2 * st.pulse); u.fade.value = st.fade; u.lampOff.value = st.lamp;
-    u.swing.value = st.swing; u.eyeZoom.value = st.eyeZoom;
+    u.swing.value = st.swing; u.eyeZoom.value = st.eyeZoom; u.eyeBlur.value = st.eyeBlur;
     if (stone) { const q = stoneScreen(); u.stoneAt.value.set(q.x / W, 1 - q.y / H); }
     const sizeK = Math.max(1, stonePx() / 22);
     u.halo.value.set(THREE.MathUtils.smoothstep(st.lift, 0, 1) * (.75 + .35 * st.pulse + .6 * st.flash), (.055 + .012 * st.pulse + .015 * st.flash) * sizeK);
