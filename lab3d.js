@@ -16,7 +16,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 const OPEN_ANGLE = .42;
 // the diorama camera: from the south-west, high and far, looking down at the worktable with the windows up to the left and
 // the photon bench behind; a long lens for the miniature look
-const VIEW = { dir: new THREE.Vector3(-Math.sin(.66) * Math.cos(.7), Math.sin(.7), Math.cos(.66) * Math.cos(.7)), target: new THREE.Vector3(0, .76, .4), width: 8.5, fov: 14 };
+const VIEW = { dir: new THREE.Vector3(-Math.sin(.66) * Math.cos(.7), Math.sin(.7), Math.cos(.66) * Math.cos(.7)), target: new THREE.Vector3(.05, .76, .7), width: 8.2, fov: 14 };
 // walls and ceiling cut away so the room shows from above
 const CUT = /^(wall_south|wall_west|ceiling|skirting_(s|w)|picture_rail_(s|w)|conduit_w)/;
 // Ruth's side, her photograph: where the stone hangs in it, how wide it shows (75 mm), where her eye is
@@ -29,7 +29,7 @@ export function createLab(canvas, opts = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, mobile ? 1.5 : 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.5;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.75;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   let W = 1, H = 1;
 
@@ -66,6 +66,8 @@ export function createLab(canvas, opts = {}) {
     room.traverse(o => {
       if (o.name) nodes[o.name] = o;
       if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
+      // the desk lamp's own parts throw no shadow from its bulb (the shade would lay a dark band across the table)
+      if (o.isMesh) for (let p = o; p; p = p.parent) if (/^lamp_/.test(p.name)) { o.castShadow = false; break; }
     });
     room.traverse(o => { if (o.name && (CUT.test(o.name) || /^ceiling_light/.test(o.name))) o.visible = false; });
     scene.add(room); room.updateMatrixWorld(true);
@@ -125,14 +127,14 @@ export function createLab(canvas, opts = {}) {
       if (!o.isMesh || keep.has(o) || !o.visible || o.isSkinnedMesh) return;
       let hidden = false; for (let p = o; p; p = p.parent) if (!p.visible) hidden = true; if (hidden) return;
       const g = plain(o.geometry).applyMatrix4(o.matrixWorld);
-      const key = o.material.uuid + '|' + Object.keys(g.attributes).sort().join();
-      if (!groups.has(key)) groups.set(key, { mat: o.material, list: [] });
+      const key = o.material.uuid + '|' + o.castShadow + '|' + Object.keys(g.attributes).sort().join();
+      if (!groups.has(key)) groups.set(key, { mat: o.material, cast: o.castShadow, list: [] });
       groups.get(key).list.push(g); drop.push(o);
     });
     for (const o of drop) { o.parent.remove(o); o.geometry.dispose(); }
-    for (const { mat, list } of groups.values()) {
+    for (const { mat, cast, list } of groups.values()) {
       const merged = mergeGeometries(list, false); list.forEach(g => g.dispose()); if (!merged) continue;
-      const m = new THREE.Mesh(merged, mat); m.castShadow = m.receiveShadow = true; m.matrixAutoUpdate = false; scene.add(m);
+      const m = new THREE.Mesh(merged, mat); m.castShadow = cast; m.receiveShadow = true; m.matrixAutoUpdate = false; scene.add(m);
     }
     // the box: each panel's parts merged under its own hinge, and the body's under the box, so they still move together
     if (!box) return;
@@ -267,7 +269,7 @@ export function createLab(canvas, opts = {}) {
     stoneLight.intensity = glowK * (2.5 + 8 * st.lift) * (.85 + .3 * st.pulse);
     // the desk lamp, until it is switched off; then only the moon
     lampSpot.intensity = 7 * (1 - st.lamp); lampGlow.intensity = 1.2 * (1 - st.lamp);
-    moon.intensity = .8 + .3 * st.lamp; fill.intensity = 1.1 * (1 - .35 * st.lamp);
+    moon.intensity = .8 + .3 * st.lamp; fill.intensity = 1.4 * (1 - .35 * st.lamp);
     // Ruth's photograph over the end of the orbit
     plate.uniforms.mixB.value = plate.uniforms.reverse.value ? THREE.MathUtils.smoothstep(st.swing, .72, 1) : 0;
     plate.uniforms.eyeZoom.value = st.eyeZoom;
