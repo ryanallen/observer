@@ -348,7 +348,7 @@ export function createLab(canvas, opts = {}) {
     c.matrixWorldInverse.copy(c.matrixWorld).invert();
     if (cj.projectionMatrix) c.projectionMatrix.fromArray(cj.projectionMatrix); else { c.updateProjectionMatrix(); cj.projectionMatrix = c.projectionMatrix.toArray(); }
     c.projectionMatrixInverse.copy(c.projectionMatrix).invert(); return c; };
-  const loadProjection = async (base = 'models/web/proj/', names = ['a', 'open', 'c', 'b', ...(opts.ruth3d ? ['b2'] : [])]) => {
+  const loadProjection = async (base = 'models/web/proj/', names = ['a', 'open', 'c', ...(opts.ruth3d ? ['b2'] : []), ...(/\/proj\/$/.test(base) ? ['b'] : [])]) => {
     const tl = new THREE.TextureLoader(), get = u => fetch(u).then(r => r.ok ? r.json() : null).then(j => typeof j === 'string' ? JSON.parse(j) : j).catch(() => null);
     await ready;
     await Promise.all(names.map(async k => {
