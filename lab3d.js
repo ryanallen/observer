@@ -55,7 +55,7 @@ export function createLab(canvas, opts = {}) {
 
   const st = { lamp: 0, open: 0, lift: 0, flash: 0, pulse: 0, swing: 0, eyeZoom: 0, fade: 1 };
   const nodes = {};
-  let box = null, stone = null, gemMat = null, glowAt = null, stoneFrom = new THREE.Vector3(), stoneHang = new THREE.Vector3();
+  let bulbMat = null, box = null, stone = null, gemMat = null, glowAt = null, stoneFrom = new THREE.Vector3(), stoneHang = new THREE.Vector3();
   const hinges = [], emissive = { monitor: null, indicators: [] };
   const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
   // the room; the box and the stone are their own models, set on the table at box_spot (the clay room has them built in)
@@ -82,6 +82,9 @@ export function createLab(canvas, opts = {}) {
     room.traverse(o => { if (!o.isMesh) return; bb.setFromObject(o).getCenter(c); if (c.x < -3.55 || c.z > 2.55 || c.y > 3.3) o.visible = false; });
     box = nodes.box_cd || null;
     for (let i = 1; i <= 7; i++) { const h = nodes['hinge_' + i]; if (h) hinges.push({ o: h, base: h.quaternion.clone() }); }
+    // the bulb's glass glows only while the lamp is on; off, it is a dark bulb that throws nothing back
+    room.traverse(o => { if (o.isMesh && o.material.name === 'lamp_bulb_glass' && !bulbMat) { bulbMat = o.material; bulbMat.color.setRGB(.08, .07, .06); bulbMat.roughness = .35; bulbMat.metalness = 0;
+      if ('transmission' in bulbMat) bulbMat.transmission = 0; bulbMat.emissive.setHex(0xffd49a); bulbMat.emissiveMap = null; } });
     // black plastic reads as plastic, not a mirror that throws the moon back as white discs
     room.traverse(o => { if (o.isMesh && o.material.name === 'lab_black_plastic') { o.material.metalness = 0; o.material.roughness = Math.max(o.material.roughness, .75); } });
     room.traverse(o => { if (o.isMesh && o.material.name === 'box_lid_filigree') { o.material.side = THREE.DoubleSide; o.material.alphaTest = o.material.alphaTest || .5; o.material.transparent = false; } });
@@ -294,6 +297,7 @@ export function createLab(canvas, opts = {}) {
     stoneLight.intensity = glowK * (10 + 6 * st.lift) * (.85 + .3 * st.pulse);
     // the desk lamp, until it is switched off; then only the moon
     lampSpot.intensity = 7 * (1 - st.lamp); lampGlow.intensity = 1.2 * (1 - st.lamp);
+    if (bulbMat) bulbMat.emissiveIntensity = 3 * (1 - st.lamp);
     moon.intensity = .8 + .3 * st.lamp; fill.intensity = 1.4 * (1 - .35 * st.lamp);
     // Ruth's photograph over the end of the orbit
     plate.uniforms.mixB.value = plate.uniforms.reverse.value ? THREE.MathUtils.smoothstep(st.swing, .72, 1) : 0;
