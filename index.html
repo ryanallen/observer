@@ -112,18 +112,11 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     bench: 0,         // the bench's indicator lights coming on one after another, 0 to 1
     monitor: 0,       // the monitor flickering on, 0 to 1
     firing: false,    // the laser firing single photons at the stone
-    shot: 0,          // P.4: the one line shooting from the stone into Ruth's eye, 0 to 1
-    burst: 0,         // the lines bursting out, bouncing round the room and settling into the steeple's outline, 0 to 1
-    sunset: 0,        // the sunset glow blooming behind the steeple's outline, 0 to 1
-    eyeImg: 0,        // her eye, close, painted, landing at the end of the push, 0 to 1
-    eyeChurch: 0,     // the painted church in her iris taking over from the drawn steeple, 0 to 1
-    steeple: 0,       // the steeple's inside darkening to black against it, 0 to 1
-    vid: 0,           // the push into her eye, the iris melting to rainbow (a video), faded in over the room, 0 to 1
-    flick: 0,         // the steeple flickering between her pupil and the field glasses' lens, 0 to 1
-    out: 0,           // the view pulling out of the glasses into Blake's study, 0 to 1
+    fireA: 1,         // the beam and its photons, fading as the view moves in to the stone, 0 to 1
+    church: 0,        // the church in the stone, held on this canvas once the lab is let go, 0 to 1
+    heart: 0,         // the heartbeat going on with no point showing (into the stone and after), 0 or 1
     clear: 0,         // the ring clearing it on a later heartbeat, 0 to 1
     lab: 0,           // the lab is showing
-    study: 0,         // Blake's study is showing
     pt: 0,            // the point's visibility
     py: .5,           // its height on screen, as a fraction
     lines: 0,         // how far the converging lines have drawn
@@ -143,7 +136,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     edge: 1,          // black feather on the entering bay's left edge
   };
   const tweenOn = (o, k, to, ms, ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2) => new Promise(res => {
-    const from = o[k], t0 = performance.now(); if (reduce) ms = Math.min(ms, 300); if (ff) ms = 1;
+    const from = o[k], t0 = performance.now(); if (reduce) ms = Math.min(ms, 300); if (ff) ms = 1; else ms *= SLOW;
     const step = now => { const t = Math.min(1, (now - t0) / ms); o[k] = from + (to - from) * ease(t); t < 1 ? requestAnimationFrame(step) : res(); };
     requestAnimationFrame(step);
   });
@@ -151,28 +144,29 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // ---- the bay in 3D: loaded once the way in is clicked, drawn under this canvas once it shows ----
   let bay = null, bayLoad = null;
   const q0 = new URLSearchParams(location.search);
+  // for tests: ?slow=n runs every timed beat n times slower, so frames can be taken across a move
+  const SLOW = Math.max(1, +q0.get('slow') || 1);
   // ---- the review menu's beats: each has its own ?at= link. The page starts at the scene holding the beat and runs
   // ahead at full speed, with no sound, words or holds, until it reaches it ----
   const BEATS = [['observe', 'OBSERVE'], ['point', 'the point'], ['lines', 'the lines'], ['sweep', 'the sweep and pan'],
     ['bay', 'the bay zoomed out'], ['drop', 'the zoom and drop'], ['underwater', 'underwater'], ['floor', 'the floor'], ['dark', 'the dark beat'],
-    ['lab', 'the lab'], ['open', 'the box opens'], ['machine', 'the machine fires'], ['swing', 'the swing to Ruth'], ['steeple', 'the steeple'],
-    ['iris', 'the iris'], ['study', 'the study']];
+    ['lab', 'the lab'], ['open', 'the box opens'], ['machine', 'the machine fires'], ['dive', 'into the stone'],
+    ['church', 'the church in the stone'], ['study', 'out to the study']];
   const AT = q0.get('at');
   const SCENE_OF = { point: 'opening', lines: 'opening', sweep: 'opening', bay: 'bay', drop: 'bay', underwater: 'bay', floor: 'bay', dark: 'bay',
-    lab: 'lab', open: 'lab', machine: 'lab', swing: 'lab', steeple: 'lab', iris: 'lab' };
+    lab: 'lab', open: 'lab', machine: 'lab', dive: 'lab', church: 'lab', study: 'lab' };
   let ff = !!SCENE_OF[AT] && !['bay', 'lab'].includes(AT);   // running ahead to the beat
   const mark = name => { if (ff && name === AT) { ff = false; setTimeout(() => resumeBed(), 0); } };
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b93')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
-  // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b94')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  // ---- the lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
-  // the lab: the 3D room (lab3d.js) on its paintings; ?room= names its model while it is being made
-  const lab3d = q0.get('lab') !== 'plate';   // the lab is the 3D room on its paintings; ?lab=plate is the old photograph lab
-  // the 3D lab's look is its paintings, laid on the room from their cameras (?proj=0 turns them off): the room remade
-  // from scratch (models/web/room2), or the earlier paintings with ?room=old
-  const loadLab = () => labLoad || (labLoad = import((lab3d ? './lab3d.js?v=' : './lab.js?v=') + (q0.get('v') || 'b93')).then(m => { lab = m.createLab($('lab'), lab3d ? { room: (q0.get('room') !== 'old' && q0.get('room')) || 'models/web/lab_room.glb', view: q0.get('view'), noBoxMerge: q0.has('nobm'), ruth3d: q0.get('ruth') !== 'plate' } : undefined); window.observerLab = lab; if (lab3d && q0.get('proj') !== '0') lab.loadProjection(q0.get('room') === 'old' ? 'models/web/proj/' : 'models/web/room2/'); return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
-  // ---- Blake's study: loaded while the iris video plays, shown once the view has pulled out of the field glasses ----
+  // the 3D room (lab3d.js) on its paintings, laid on the room from their cameras (?proj=0 turns them off): the room remade
+  // from scratch (models/web/room2), or the earlier paintings with ?room=old; ?room= names its model while it is made
+  const loadLab = () => labLoad || (labLoad = import('./lab3d.js?v=' + (q0.get('v') || 'b94')).then(m => { lab = m.createLab($('lab'), { room: (q0.get('room') !== 'old' && q0.get('room')) || 'models/web/lab_room.glb', view: q0.get('view'), noBoxMerge: q0.has('nobm') }); window.observerLab = lab; if (q0.get('proj') !== '0') lab.loadProjection(q0.get('room') === 'old' ? 'models/web/proj/' : 'models/web/room2/'); return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  // ---- Blake's study (study2.js): loaded while the church comes up in the stone, shown as the view comes out of the
+  // field glasses ----
   let study = null, studyLoad = null;
-  const loadStudy = () => studyLoad || (studyLoad = import('./study.js?v=' + (q0.get('v') || 'b93')).then(m => { study = m.createStudy($('study')); window.observerStudy = study; return study.ready.then(() => study); }).catch(e => { console.warn('study', e); return null; }));
+  const loadStudy = () => studyLoad || (studyLoad = import('./study2.js?v=' + (q0.get('v') || 'b94')).then(m => { study = m.createStudy($('study')); window.observerStudy = study; return study.ready.then(() => study); }).catch(e => { console.warn('study', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
@@ -181,7 +175,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     const moving = (S.lines > 0 && S.lines < 1) || (S.pull > 0 && S.pull < 1) || eyeMoving || S.follow > 0;
     if (S.bay > 0 || (document.getElementById('begin') && !S.pt) || (!moving && ph > .45 && ph < .92)) r(); else setTimeout(chk, 40);
   }; chk(); });
-  const wait = ms => new Promise(r => setTimeout(r, ff ? 1 : reduce ? Math.min(ms, 600) : ms));
+  const wait = ms => new Promise(r => setTimeout(r, ff ? 1 : reduce ? Math.min(ms, 600) : ms * SLOW));
   let skipping = false;
   // a line on screen, and the Observer's recording of it where there is one; the line stays up while it is spoken
   const VOICE = { 'This is a point.': 'audio/voice-this-is-a-point.mp3?v=2', 'Every line, followed far enough, comes to it.': 'audio/voice-every-line-followed-far-enough.mp3?v=1', 'Follow one line back.': 'audio/voice-follow-one-line-back.mp3?v=1', 'In 1935, Dr Dexter sank the Shining Trapezohedron here.': 'audio/voice-in-1935-dr-dexter-sank.mp3?v=1', 'Now his great-granddaughter has come for it.': 'audio/voice-now-his-great-granddaughter.mp3?v=1', 'Ninety years in the dark.': 'audio/voice-ninety-years-in-the-dark.mp3?v=1', 'In the dark, it wakes.': 'audio/voice-in-the-dark-it-wakes.mp3?v=1' };
@@ -248,8 +242,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     follow: ['audio/line-follow.mp3?v=1', 'bed', .4], tremble: ['audio/tremble.mp3?v=1', 'sfx', .6],
     splash: ['audio/splash.mp3?v=1', 'sfx', .7], splash2: ['audio/splash.mp3?v=1', 'sfx', .45],
     bubbles: ['audio/bubbles-loop.mp3?v=1', 'bed', .35, true], deep: ['audio/deep-loop.mp3?v=1', 'bed', .55, true],
-    blake: ['audio/voice-ruth-blake.mp3?v=1', 'voice', 1],   // Ruth, scared, as the steeple forms in her eye
-    iris: ['audio/iris-rise.mp3?v=1', 'sfx', .9],   // the hurdy-gurdy and waterphone swelling into echoes; its peak at 4.2 s
+    swell: ['audio/iris-rise.mp3?v=1', 'sfx', .8],   // the hurdy-gurdy and waterphone swelling into echoes (5.7 s, its peak at 4.2 s), under the move into the stone
   };
   for (const [line, u] of Object.entries(VOICE)) SOUNDS[line] = [u, 'voice', 1];
   const buf = {}, live = {}, byUrl = {}, failed = {}, elems = {};
@@ -445,19 +438,19 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     }
     // the stone's red core, glowing through its facets: deep red-orange, never white; it swells on the beat and at a strike
     if (lab.st.lift > 0) {
-      const p = lab.stoneScreen(), k = ease01(lab.st.lift) * (1 - Math.min(1, (lab.st.eyeZoom || 0) * 3)), pulse = lab.st.pulse || 0, fl = lab.st.flash || 0;
+      const p = lab.stoneScreen(), k = ease01(lab.st.lift) * (1 - Math.min(1, (lab.st.dive || 0) * 4)), pulse = lab.st.pulse || 0, fl = lab.st.flash || 0;
       const r = (9 + 3 * pulse + 5 * fl) * k * Math.max(1, lab.stonePx() / 22), gr = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
       gr.addColorStop(0, `rgba(255,${Math.round(90 + 50 * fl)},40,${(.8 + .2 * fl) * k})`); gr.addColorStop(.45, `rgba(230,35,12,${.55 * k})`); gr.addColorStop(1, 'rgba(200,20,8,0)');
       g.fillStyle = gr; g.beginPath(); g.arc(p.x, p.y, r, 0, 7); g.fill();
     }
     // the photons: one bright spark at a time with a short trail, from the laser's aperture to the stone, 3 to 6 a second
     if (S.firing) {
-      if (t >= nextPhoton) { photons.push({ t0: t }); nextPhoton = t + 1 / (3 + Math.random() * 3); }
+      if (t >= nextPhoton && S.fireA >= 1) { photons.push({ t0: t }); nextPhoton = t + 1 / (3 + Math.random() * 3); }
       const from = lab.is3d ? lab.nodeScreen('laser_exit') : lab.plateToScreen(...LASER), to = lab.stoneScreen(), fly = .28;
       // the beam itself: a thin red line from the laser's muzzle to the stone, coming up over a third of a second and
       // flickering a little, with a soft glow round it and a point of light at the muzzle; the photons run along it
       if (S.fireT == null) S.fireT = t;
-      const on = Math.min(1, (t - S.fireT) / .35) * (.85 + .15 * Math.sin(t * 47) * Math.sin(t * 13));
+      const on = Math.min(1, (t - S.fireT) / .35) * (.85 + .15 * Math.sin(t * 47) * Math.sin(t * 13)) * S.fireA;
       g.globalCompositeOperation = 'lighter'; g.lineCap = 'round';
       g.strokeStyle = `rgba(255,40,20,${.16 * on})`; g.lineWidth = 6; g.beginPath(); g.moveTo(from.x, from.y); g.lineTo(to.x, to.y); g.stroke();
       g.strokeStyle = `rgba(255,90,60,${.75 * on})`; g.lineWidth = 1.3; g.beginPath(); g.moveTo(from.x, from.y); g.lineTo(to.x, to.y); g.stroke();
@@ -480,142 +473,40 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     }
     g.restore();
   };
-  // ---- P.4, the look back: a line from the stone into Ruth's eye; lines bursting out and bouncing round the room, settling
-  // into a church steeple, black against a sunset; her eye close, the steeple in its iris; the iris becoming the field
-  // glasses' view ----
+  // ---- the church in the stone: what the stone's visions resolve into. Once it has the screen the lab is let go and it
+  // is held here, on this canvas, as one still that the pointer shifts a little, as on the moor ----
   const img = u => { const i = new Image(); i.decoding = 'async'; i.src = u; return i; };
-  let p4 = null;   // its images and the steeple's outline, loaded once P.3 starts firing
-  const loadP4 = () => p4 || (p4 = (async () => {
-    // the push into her eye is a short video (her iris melting to rainbow), drawn to the canvas: it plays the same on a
-    // phone and without a graphics card; then Blake's field glasses and his study
-    const vid = document.createElement('video'); vid.muted = true; vid.playsInline = true; vid.setAttribute('playsinline', ''); vid.preload = 'auto'; vid.src = 'models/web/iris_zoom.mp4';
-    const ep = img('models/web/study_eyepiece.webp'), wide = img('models/web/study_wide.webp');
-    const outline = await fetch('models/web/steeple_outline.json').then(r => r.json()).catch(() => []);
-    // her eye, close: as painted plain (the push lands on it) and with the church in the iris (it takes over from the lines)
-    const eyePlain = img('models/web/eye_plain.webp'), eyeChurch = img('models/web/eye_paint.webp');
-    await Promise.all([eyePlain.decode().catch(() => {}), eyeChurch.decode().catch(() => {})]);
-    await Promise.all([ep.decode().catch(() => {}), wide.decode().catch(() => {}),
-      new Promise(r => { if (vid.readyState >= 3) r(); else { vid.addEventListener('canplaythrough', r, { once: true }); setTimeout(r, 6000); } })]);
-    return { vid, ep, wide, outline, eyePlain: eyePlain.naturalWidth ? eyePlain : eyeChurch, eyeChurch };
-  })());
-  // the field glasses' near lens in the close photograph, and the same lens on the desk in the wide one (pixels of 1672 x 941)
-  const EP = { x: 838, y: 470, r: 115 }, WIDE = { x: 827, y: 485, r: 6.5 };   // study_wide_fullbleed_b, the near eyepiece
-  const burstLines = Array.from({ length: 36 }, (_, i) => ({ a: i / 36 * Math.PI * 2 + Math.random() * .2, sp: .9 + Math.random() * .7, trail: [] }));
-  // where a 1672 x 941 photograph shows when it covers the screen
-  const coverOf = () => { const sc = Math.max(W / 1672, H / 941); return { sc, ox: (W - 1672 * sc) / 2, oy: (H - 941 * sc) / 2 }; };
-  // the steeple hangs in the air between Ruth and the stone
-  // the eye close-up's own pixels (1600 x 900): the iris, and the church in it
-  const EYE = { w: 1600, h: 900, iris: { x: 790, y: 468 }, church: { x: 808, y: 442, h: 116 } };
-  const eyeCover = () => { const sc = Math.max(W / EYE.w, H / EYE.h); return { sc, ox: (W - EYE.w * sc) / 2, oy: (H - EYE.h * sc) / 2 }; };
-  // where her eye shows: the push into it brings it to the middle of the screen, where the close-up's iris is
-  const eyeShown = () => {
-    const e = lab ? lab.eyeScreen() : { x: W / 2, y: H / 2 }, z = lab ? lab.st.eyeZoom || 0 : 0, k = z * z * (3 - 2 * z), c = eyeCover();
-    const tx = c.ox + EYE.iris.x * c.sc, ty = c.oy + EYE.iris.y * c.sc; return { x: e.x + (tx - e.x) * k, y: e.y + (ty - e.y) * k };
+  // as the lab shows it at rest (lab3d.js churchFrame): covering the screen a little larger than it, held up toward the
+  // tower, and shifted by the pointer at most 2% of the screen each way
+  const CHURCH_ZOOM = 1.05, CHURCH_SHIFT = .02, CHURCH_FOCUS = 0;
+  let churchImg = null, churchLoad = null;
+  // until the painting is in models/web, a stand-in: a steeple, black against a red glow
+  const churchStandIn = () => {
+    const c = document.createElement('canvas'); c.width = c.height = 1024; const x = c.getContext('2d');
+    const sky = x.createRadialGradient(512, 640, 40, 512, 600, 720);
+    sky.addColorStop(0, '#ff9a4a'); sky.addColorStop(.25, '#c8381a'); sky.addColorStop(.6, '#4a0c08'); sky.addColorStop(1, '#0c0203');
+    x.fillStyle = sky; x.fillRect(0, 0, 1024, 1024);
+    x.fillStyle = '#070304'; x.beginPath();
+    [[300, 1024], [300, 640], [420, 560], [420, 470], [470, 430], [512, 150], [554, 430], [604, 470], [604, 560], [724, 640], [724, 1024]].forEach(([a, b], i) => i ? x.lineTo(a, b) : x.moveTo(a, b));
+    x.closePath(); x.fill();
+    return c;
   };
-  // the steeple forms inside the circle of her iris, centred on it, once the view is close on her eye
-  let outlineMid = null;
-  const steepleAt = () => {
-    const o = p4Ready && p4Ready.outline;
-    if (!outlineMid && o && o.length) { let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; for (const [x, y] of o) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } outlineMid = [(x0 + x1) / 2, (y0 + y1) / 2, y1 - y0]; }
-    const m = outlineMid || [0, 0, 1], c = eyeCover();
-    // settled exactly on the painted church, so the painting can take over from the lines
-    const h = EYE.church.h * c.sc / m[2], ax = c.ox + EYE.church.x * c.sc, ay = c.oy + EYE.church.y * c.sc;
-    return { x: ax - m[0] * h, y: ay - m[1] * h, h };
+  // the church in the stone (where the visions end, and held after) and the church plain (coming through the faces first)
+  // a landscape screen takes the wide paintings (the whole church, steeple tip to fence), a portrait one the squares
+  const loadChurch = () => churchLoad || (churchLoad = Promise.all(['church_in_stone', 'church_plain'].map(async n => {
+    const get = async u => { const im = img(u); try { await im.decode(); return im; } catch (e) { return null; } };
+    return (W >= H && await get('models/web/' + n + '_wide.webp?v=1')) || get('models/web/' + n + '.webp?v=2');
+  })).then(([inStone, plain]) => { churchImg = inStone || churchStandIn(); return [churchImg, plain || churchImg]; }));
+  const holdView = { x: 0, y: 0 };
+  const drawChurch = dt => {
+    const iw = churchImg.naturalWidth || churchImg.width, ih = churchImg.naturalHeight || churchImg.height;
+    const ax = mouse.on ? Math.max(-1, Math.min(1, mouse.x / W * 2 - 1)) : reduce ? 0 : Math.sin(t * .17) * .55;
+    const ay = mouse.on ? Math.max(-1, Math.min(1, mouse.y / H * 2 - 1)) : reduce ? 0 : Math.sin(t * .11 + 1.3) * .35;
+    const e = 1 - Math.exp(-dt * 4); holdView.x += (ax - holdView.x) * e; holdView.y += (ay - holdView.y) * e;
+    const sc = Math.max(W / iw, H / ih) * CHURCH_ZOOM, hh = (H / 2 + CHURCH_SHIFT * H) / sc, cy = Math.max(hh, Math.min(ih - hh, CHURCH_FOCUS * ih));
+    const dx = -holdView.x * CHURCH_SHIFT * W, dy = -holdView.y * CHURCH_SHIFT * H;
+    g.globalAlpha = S.church; g.drawImage(churchImg, W / 2 + dx - iw / 2 * sc, H / 2 + dy - cy * sc, iw * sc, ih * sc); g.globalAlpha = 1;
   };
-  const drawP4 = () => {
-    if (!p4Ready) return;
-    const P = p4Ready;
-    g.save();
-    // her eye close, once the push has landed: plain, then with the painted church taking over from the drawn one
-    if (S.eyeImg > 0 && S.vid < 1 && P.eyePlain) {
-      const c = eyeCover(); g.globalCompositeOperation = 'source-over';
-      g.globalAlpha = S.eyeImg; g.drawImage(P.eyePlain, c.ox, c.oy, EYE.w * c.sc, EYE.h * c.sc);
-      if (S.eyeChurch > 0) { g.globalAlpha = S.eyeImg * S.eyeChurch; g.drawImage(P.eyeChurch, c.ox, c.oy, EYE.w * c.sc, EYE.h * c.sc); }
-      g.globalAlpha = 1;
-    }
-    // the line into her eye, then the burst: bright lines like the opening's, bouncing off the edges, settling onto the outline
-    if ((S.shot > 0 || S.burst > 0) && lab && S.lab > 0 && S.vid < 1) {
-      const eye = S.burst > 0 ? eyeShown() : lab.eyeScreen(), from = S.burst > 0 ? eye : lab.stoneScreen();   // the burst comes out of her eye
-      const drawn = 1 - (S.eyeChurch || 0);   // the drawn lines and steeple give way to the painted church
-      g.globalCompositeOperation = 'lighter'; g.lineCap = 'round';
-      if (S.shot > 0 && S.burst < .3) {
-        const k = Math.min(1, S.shot), x = from.x + (eye.x - from.x) * k, y = from.y + (eye.y - from.y) * k, fadeL = (1 - S.burst / .3) * (1 - Math.min(1, lab.st.eyeZoom * 3));   // gone as the view rushes in
-        g.strokeStyle = `rgba(255,70,40,${.35 * fadeL})`; g.lineWidth = 7; g.beginPath(); g.moveTo(from.x, from.y); g.lineTo(x, y); g.stroke();
-        g.strokeStyle = `rgba(255,236,220,${fadeL})`; g.lineWidth = 2.4; g.beginPath(); g.moveTo(from.x, from.y); g.lineTo(x, y); g.stroke();
-        if (k >= 1) {   // her eye catches the light
-          const gl = g.createRadialGradient(eye.x, eye.y, 0, eye.x, eye.y, 22);
-          gl.addColorStop(0, `rgba(255,245,235,${fadeL})`); gl.addColorStop(.3, `rgba(255,120,80,${.6 * fadeL})`); gl.addColorStop(1, 'rgba(255,60,30,0)');
-          g.fillStyle = gl; g.beginPath(); g.arc(eye.x, eye.y, 22, 0, 7); g.fill();
-        }
-      }
-      if (S.burst > 0 && P.outline.length) {
-        const sp = steepleAt(), settle = ease01((S.burst - .5) / .45), heads = [];
-        burstLines.forEach((L, i) => {
-          // flying: straight out at speed, reflected at every edge of the screen
-          const dist = S.burst * L.sp * (W + H) * 1.4;
-          let x = from.x, y = from.y, dx = Math.cos(L.a), dy = Math.sin(L.a), left = dist;
-          for (let n = 0; n < 6 && left > 0; n++) {
-            const tx = dx > 0 ? (W - x) / dx : dx < 0 ? -x / dx : 1e9, ty = dy > 0 ? (H - y) / dy : dy < 0 ? -y / dy : 1e9, tt = Math.min(tx, ty, left);
-            x += dx * tt; y += dy * tt; left -= tt; if (tt === tx) dx = -dx; if (tt === ty) dy = -dy;
-          }
-          const o = P.outline[Math.floor(i / burstLines.length * P.outline.length)];
-          const tx = sp.x + o[0] * sp.h, ty = sp.y + o[1] * sp.h;
-          const hx = x + (tx - x) * settle, hy = y + (ty - y) * settle; heads.push([hx, hy]);
-          L.trail.push([hx, hy]); if (L.trail.length > 7) L.trail.shift();
-          const a = .85 * (1 - settle * .5) * drawn;
-          g.strokeStyle = `rgba(255,236,222,${a})`; g.lineWidth = 1.4; g.beginPath(); L.trail.forEach(([px, py], j) => j ? g.lineTo(px, py) : g.moveTo(px, py)); g.stroke();
-        });
-        // once they settle, the outline joins up, a glow of sunset behind it and the steeple black within
-        if (settle > 0) {
-          if (S.sunset > 0) {
-            // a sunset blooming behind the outline: a warm sky, brightest low behind the church, fading up and out
-            const gx = sp.x, gy = sp.y + sp.h * .32, gr0 = sp.h * 1.05 * (.6 + .4 * ease01(S.sunset));
-            g.save(); g.translate(gx, gy); g.scale(1.5, 1); g.globalAlpha = drawn;
-            const glow = g.createRadialGradient(0, 0, 0, 0, 0, gr0);
-            glow.addColorStop(0, `rgba(255,200,110,${.85 * S.sunset})`); glow.addColorStop(.25, `rgba(255,140,60,${.6 * S.sunset})`);
-            glow.addColorStop(.6, `rgba(210,70,30,${.28 * S.sunset})`); glow.addColorStop(1, 'rgba(120,30,10,0)');
-            g.fillStyle = glow; g.beginPath(); g.arc(0, 0, gr0, 0, 7); g.fill(); g.restore();
-          }
-          if (S.steeple > 0) {
-            g.globalCompositeOperation = 'source-over';
-            g.fillStyle = `rgba(8,5,5,${S.steeple * drawn})`; g.beginPath();
-            P.outline.forEach(([ox, oy], j) => j ? g.lineTo(sp.x + ox * sp.h, sp.y + oy * sp.h) : g.moveTo(sp.x + ox * sp.h, sp.y + oy * sp.h)); g.closePath(); g.fill();
-            g.globalCompositeOperation = 'lighter';
-          }
-          g.strokeStyle = `rgba(255,230,210,${.8 * settle * drawn})`; g.lineWidth = 1.3; g.beginPath();
-          P.outline.forEach(([ox, oy], j) => j ? g.lineTo(sp.x + ox * sp.h, sp.y + oy * sp.h) : g.moveTo(sp.x + ox * sp.h, sp.y + oy * sp.h)); g.closePath(); g.stroke();
-        }
-      }
-    }
-    // her eye: the video, covering the screen; its last frame has the pupil (and the steeple in it) centred
-    if (S.vid > 0 && !(S.study > 0)) {
-      g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
-      const vsc = Math.max(W / 960, H / 540), vw = 960 * vsc, vh = 540 * vsc;
-      const pupilR = .24 * vh, cx2 = W / 2, cy2 = H / 2;
-      // the field glasses' lens laid exactly on the pupil, then the view pulling out of the glasses into the study
-      const epAt = k => { const kc = Math.max(W / 1672, H / 941), k0 = pupilR / EP.r, kk = k0 + (kc - k0) * k;
-        const x0 = cx2 - EP.x * k0, y0 = cy2 - EP.y * k0, x1 = (W - 1672 * kc) / 2, y1 = (H - 941 * kc) / 2;
-        return { k: kk, x: x0 + (x1 - x0) * k, y: y0 + (y1 - y0) * k }; };
-      const showEp = S.flick > 0 && (S.flick >= 1 || Math.floor(S.flick * 16) % 2 === 1);
-      if (!showEp && S.out <= 0) { g.globalAlpha = S.vid; g.drawImage(P.vid, cx2 - vw / 2, cy2 - vh / 2, vw, vh); g.globalAlpha = 1; }
-      if (showEp || S.out > 0) {
-        const e = epAt(ease01(Math.min(1, S.out / .4)));
-        g.drawImage(P.ep, e.x, e.y, 1672 * e.k, 941 * e.k);
-        if (S.out > .4) {
-          // the same lens on the desk in the wide photograph, then out to the whole room
-          const kc = Math.max(W / 1672, H / 941), ex = e.x + EP.x * e.k, ey = e.y + EP.y * e.k, er = EP.r * e.k;
-          const z = ease01((S.out - .4) / .6), kw0 = er / WIDE.r, kw = kw0 + (kc - kw0) * z;
-          const wx0 = ex - WIDE.x * kw0, wy0 = ey - WIDE.y * kw0, wx1 = (W - 1672 * kc) / 2, wy1 = (H - 941 * kc) / 2;
-          g.globalAlpha = ease01((S.out - .4) / .12);
-          g.drawImage(P.wide, wx0 + (wx1 - wx0) * z, wy0 + (wy1 - wy0) * z, 1672 * kw, 941 * kw);
-          g.globalAlpha = 1;
-        }
-      }
-    }
-    g.restore();
-  };
-  let p4Ready = null;
-  const P4vid = () => p4Ready.vid;
   // a promise kept on the next heartbeat
   const beatWaiters = [];
   const onBeat = () => ff ? Promise.resolve() : new Promise(r => beatWaiters.push(r));
@@ -770,7 +661,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       if (bay.st.stone > 0) { const q = bay.stoneScreen(), k = ease01(bay.st.stone); p.x += (q.x - p.x) * k; p.y += (q.y - p.y) * k; }
       cx += (p.x - cx) * S.bay; cy += (p.y - cy) * S.bay;
       g.clearRect(0, 0, W, H); if (S.bay < 1) { g.fillStyle = `rgba(5,5,6,${1 - S.bay})`; g.fillRect(0, 0, W, H); }
-    } else { g.fillStyle = '#050506'; g.fillRect(0, 0, W, H); }
+    } else if (S.church > 0 && churchImg) { g.fillStyle = '#000'; g.fillRect(0, 0, W, H); drawChurch(dt); }
+    else { g.fillStyle = '#050506'; g.fillRect(0, 0, W, H); }
     cx += pointDx; cy += pointDy;
     P.x = cx; P.y = cy;
 
@@ -876,6 +768,8 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       // the heartbeat, on each ping
       const n = Math.floor(t / 3.33); if (n !== lastBeat) { lastBeat = n; if (S.pt > .5) beat(); if (lab) lab.st.pulse = 1; beatWaiters.splice(0).forEach(f => f()); }
     }
+    // with no point, the heart still beats: into the stone, through its visions and on the church
+    else if (S.heart) { const n = Math.floor(t / 3.33); if (n !== lastBeat) { lastBeat = n; beat(); if (lab) lab.st.pulse = 1; beatWaiters.splice(0).forEach(f => f()); } }
     // the hold ring
     // the ring fills round the cursor while it rests on the point
     if (S.ring > 0 && mouse.on) {
@@ -884,7 +778,6 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
       g.strokeStyle = 'rgba(233,228,218,.9)'; g.lineWidth = 1.6; g.beginPath(); g.arc(rx, ry, rr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * S.ring); g.stroke();
     }
     drawMachine();
-    drawP4();
     if (S.dark > 0) drawDark();
     if (washT0 === -1 && bay && S.bay > 0 && bay.camera.position.y < 0) washT0 = t;   // the wash starts on the very frame the view goes under
     if (washT0 >= 0) { const k = (t - washT0) / 1.3; if (k >= 1) washT0 = -2; else drawWash(k); }   // -2: it has played, once
@@ -996,13 +889,6 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     else if (scene === 'bay') { b.remove(); S.pt = 1; skipping = false; loadBay(); await bayScene(); return; }
     else if (scene === 'lab') { b.remove(); S.pt = 1; S.bay = 1; S.dark = 1; skipping = false; if (await loadLab()) await labScene(); return; }
     if (q0.get('at') === 'bay') { b.remove(); S.pt = 1; skipping = false; loadBay(); await bayScene(); return; }
-    if (q0.get('at') === 'pullout') {   // for tests: from the end of the iris video through the pull-out into the study
-      b.remove(); S.pt = 0; skipping = false; p4Ready = await loadP4(); loadStudy(); await loadStudy();
-      P4vid().currentTime = 2.99; S.vid = 1; await wait(800);
-      window.__irisGo = true; await tween('flick', 1, 600, k => k); await wait(500); await tween('out', 1, 5200, k => k);
-      study.render(0); $('study').style.opacity = 1; S.study = 1; return;
-    }
-    if (q0.get('at') === 'study') { b.remove(); S.pt = 0; skipping = false; if (await loadStudy()) { $('study').style.opacity = 1; S.study = 1; } return; }
     if (q0.get('at') === 'lab') { b.remove(); S.pt = 1; S.bay = 1; S.dark = 1; skipping = false; if (await loadLab()) await labScene(); return; }
     if (scene !== 'opening') {
       await new Promise(res => b.addEventListener('click', e => { e.stopPropagation(); if (want) { startSound(); play('tremble'); } loadBay(); res(); }, { once: true }));
@@ -1131,7 +1017,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     if (!(await labReady)) return;
     return labScene();
   }
-  // Ruth's lab: on a heartbeat the dark clears off the room; the box on the table pings; resting on it opens it
+  // the lab: on a heartbeat the dark clears off the room; the box on the table pings; resting on it opens it
   async function labScene() {
     // its first frame, with every shader and texture made ready, is drawn while the screen is still black
     lab.render(0); await wait(50);
@@ -1157,58 +1043,49 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     // the stone lifts out and hangs above the box, turning; the ping goes with it
     await tweenOn(lab.st, 'lift', 1, 2600);
     mark('machine');
-    // the machine wakes by itself, then fires at the stone; in the 3D lab the view draws back to the whole room
-    if (lab.is3d) tweenOn(lab.st, 'wide', 1, 3000);
+    // the machine wakes by itself, then fires at the stone; the view holds exactly where it is
     await wait(700);
     tween('monitor', 1, 1400, k => k);
     await tween('bench', 1, 2400, k => k);
     S.firing = true;
-    // P.4: the look back
-    const p4Load = Promise.all([loadP4().then(v => { p4Ready = v; }), lab.loadReverse()]);
+    const churchReady = loadChurch().then(([a, b]) => lab.setChurch(a, b));
     await wait(2600);
     say('A point of light at a time.', 2800);
-    await wait(2200); await p4Load;
-    mark('swing');
-    // the camera swings round the hanging stone, fast, and closes in on Ruth's side; the machine's light stays behind
-    S.firing = false; S.fireT = null; photons.length = 0; tween('bench', 0, 400); tween('monitor', 0, 400);
-    S.pt = 0;   // no ping ring on the stone through the look back
-    await tweenOn(lab.st, 'swing', 1, 1500, k => k);
-    await wait(1000);
-    mark('steeple');
-    // a line shoots out of the stone into her eye; a beat with her eye catching the light, then the view rushes into that
-    // eye, fast, blurred, and lands close on her iris; only then do the lines burst and settle into the steeple in it
-    await tween('shot', 1, 300, k => k * k);
-    await wait(500);
-    await tweenOn(lab.st, 'eyeZoom', 1, 700, k => { lab.st.eyeBlur = Math.sin(Math.PI * k); S.eyeImg = ease01((k - .55) / .45); return k * k * (3 - 2 * k); });
-    S.eyeImg = 1;
-    lab.st.eyeBlur = 0; S.shot = 0;
-    await tween('burst', 1, 2600, k => k);
-    // the lines have settled into the outline: a sunset blooms behind it, then the inside darkens to black
-    await tween('sunset', 1, 900);
-    play('blake');
-    await tween('steeple', 1, 900);
-    // the painted church in her iris takes over from the drawn one
-    await tween('eyeChurch', 1, 1000);
-    await wait(400);
-    // close on her eye: the sound swells so its peak lands on the flicker, 4.2 s from now (the video starts in 1.2 s, runs 3 s)
-    mark('iris');
-    play('iris');
-    await wait(800);
-    P4vid().currentTime = 0;
-    await tween('vid', 1, 400);
-    // the lab is done: let it go
-    S.lab = 0; S.pt = 0; release('blake'); lab.dispose(); $('lab').remove(); lab = null; window.observerLab = null;
+    await wait(2200); await churchReady;
+    mark('dive');
+    // one big smooth move straight in to the stone (the camera never turns), until its faces fill the screen; the beam
+    // fades behind; inside, the stone's visions come up as it closes
+    S.pt = 0; S.heart = 1;
+    // the swell, timed so its peak lands as the visions come up
+    setTimeout(() => { if (!ff) play('swell'); }, 2100 * SLOW);
+    tween('fireA', 0, 1200).then(() => { S.firing = false; S.fireT = null; photons.length = 0; });
+    const diving = tweenOn(lab.st, 'dive', 1, 8000);
+    await wait(6300);
+    await tweenOn(lab.st, 'trip', 1, 3000, k => k * k * (3 - 2 * k));
+    await diving;
+    // the visions, slow and hypnotic, then the church comes through the stone's faces
+    await wait(7000);
+    mark('church');
     loadStudy();
-    await P4vid().play().catch(() => {});
-    await new Promise(r => { const v = P4vid(); if (v.ended) r(); else { v.addEventListener('ended', r, { once: true }); setTimeout(r, 3600); } });
-    // the steeple in her pupil flickers, fast, in and out with the field glasses' lens, then holds on the glasses
-    await tween('flick', 1, 600, k => k);
-    await wait(500);
-    // the view pulls out of the glasses into Blake's study
-    await tween('out', 1, 5200, k => k);
-    // the study, live: the pointer shifts the view a little and racks the focus, as on the moor
-    if (await loadStudy()) { study.render(0); $('study').style.opacity = 1; S.study = 1; }
-    release('iris');
+    await tweenOn(lab.st, 'church', 1, 5000);
+    // the church holds in the stone; the lab is over: the church is held on this canvas, and the lab let go
+    holdView.x = lab.view.x; holdView.y = lab.view.y; S.church = 1;
+    await wait(120);
+    S.lab = 0; S.pt = 0; release('swell'); lab.dispose(); $('lab').remove(); lab = null; window.observerLab = null;
+    window.observerChurch = { img: churchImg, view: holdView };
+    // the next part attaches here: out of the church, through Blake's field glasses, into his new study
+    await afterChurch();
+  }
+  // out of the church, through Blake's field glasses, into his study: the church in the stone is the church in the glass
+  // of the field glasses' left eyepiece; the view comes straight out of it to the whole room as a diorama
+  async function afterChurch() {
+    await wait(1500);
+    if (!(await loadStudy())) return;
+    mark('study');
+    study.setChurch(churchImg, { x: -holdView.x * CHURCH_SHIFT * W, y: -holdView.y * CHURCH_SHIFT * H });
+    study.render(0); $('study').style.opacity = 1; S.study = 1; S.church = 0;
+    await tweenOn(study.st, 'out', 1, 11000);
+    S.heart = 0;
   }
 })();
 </script>

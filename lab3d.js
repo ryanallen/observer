@@ -1,8 +1,8 @@
-// Ruth's lab as a real room: the whole lab in 3D, seen from above like the bay, a tilt-shift diorama. The pointer moves the
+// The lab as a real room: the whole lab in 3D, seen from above like the bay, a tilt-shift diorama. The pointer moves the
 // camera a little (real parallax, about 2% of the frame) and racks the focus to what it rests on. The desk lamp, the
 // moonlight through the north windows and the stone's red glow are real lights; the box opens on its hinges and the stone
-// lifts to hang above it. In P.4 the camera orbits the hanging stone to Ruth's side, and ends on her photograph until her
-// own model is in the room.
+// lifts to hang above it. After the firing the camera moves straight in to the stone (never turning) until its faces fill
+// the screen; inside it, the stone's own visions (a shader), which resolve into the church.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
@@ -13,13 +13,20 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
-let OPEN_ANGLE = .72;   // the panels tipped out into a crown, as wide as in the approved open-box picture
+let OPEN_ANGLE = .72;
+// the church in the stone, at rest: covering the screen a little larger than it (CHURCH_ZOOM), shifted by the pointer at
+// most CHURCH_SHIFT of the screen each way, as on the moor
+export const CHURCH_ZOOM = 1.05, CHURCH_SHIFT = .02, CHURCH_FOCUS = 0;   // held at the top: the steeple's tip always in frame
+// where the church sits: its scale (screen pixels per image pixel) and the image point at the middle of the screen. On a
+// wide screen the square picture is cropped top and bottom, held up toward the tower (CHURCH_FOCUS of its height) but
+// never past its edge, with room for the shift. index.html draws it the same way
+export const churchFrame = (W, H, iw, ih) => {
+  const sc = Math.max(W / iw, H / ih) * CHURCH_ZOOM, hh = (H / 2 + CHURCH_SHIFT * H) / sc;
+  return { sc, cx: iw / 2, cy: Math.max(hh, Math.min(ih - hh, CHURCH_FOCUS * ih)) };
+};   // the panels tipped out into a crown, as wide as in the approved open-box picture
 // the diorama camera: from the south-west, high and far, looking down at the worktable with the windows up to the left and
 // the photon bench behind; a long lens for the miniature look
 const VIEW = { dir: new THREE.Vector3(-Math.sin(.66) * Math.cos(.7), Math.sin(.7), Math.cos(.66) * Math.cos(.7)), target: new THREE.Vector3(.05, .76, .7), width: 8.2, fov: 14 };
-// Ruth's side, her photograph: where the stone hangs in it, how wide it shows (75 mm), where her eye is
-const REV = { w: 1672, h: 941, stone: { x: 853, y: 290 }, stoneW: 98, eye: { x: 617, y: 149 } };
-
 export function createLab(canvas, opts = {}) {
   // for tuning: ?view=yaw,pitch,width[,x,y,z] (degrees, degrees, metres, and the point looked at)
   if (opts.view) { const [yw, pt, wd] = opts.view.split(',').map(Number); VIEW.dir.set(Math.sin(yw * Math.PI / 180) * Math.cos(pt * Math.PI / 180), Math.sin(pt * Math.PI / 180), Math.cos(yw * Math.PI / 180) * Math.cos(pt * Math.PI / 180)); if (wd) VIEW.width = wd; const t = opts.view.split(',').map(Number); if (t.length >= 6) VIEW.target.set(t[3], t[4], t[5]); }
@@ -29,7 +36,7 @@ export function createLab(canvas, opts = {}) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
   // the diorama's cut: everything west of x -3.55 m, south of z 2.55 m and above 3.3 m is not drawn (the near walls, what
-  // hangs on them, and the ceiling); off while the camera orbits inside the room
+  // hangs on them, and the ceiling)
   const cut = [new THREE.Plane(new THREE.Vector3(1, 0, 0), 3.55), new THREE.Plane(new THREE.Vector3(0, 0, -1), 2.55), new THREE.Plane(new THREE.Vector3(0, -1, 0), 3.3)];
   renderer.clippingPlanes = cut;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -63,7 +70,8 @@ export function createLab(canvas, opts = {}) {
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(.004, .004, 1, 6, 1, true), beamMat); scene.add(beam);
   const photonSprites = Array.from({ length: 3 }, () => { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, color: 0xffe0c0, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0 })); scene.add(sp); return sp; });
 
-  const st = { lamp: 0, open: 0, lift: 0, flash: 0, pulse: 0, swing: 0, eyeZoom: 0, eyeBlur: 0, fade: 1, beam: 0, wide: 0 };
+  // dive: the move in to the stone, 0 to 1; trip: the visions inside it showing, 0 to 1; church: the church taking over
+  const st = { lamp: 0, open: 0, lift: 0, flash: 0, pulse: 0, fade: 1, beam: 0, dive: 0, trip: 0, church: 0 };
   const nodes = {};
   let bulbMat = null, box = null, stone = null, gemMat = null, glowAt = null, stoneFrom = new THREE.Vector3(), stoneHang = new THREE.Vector3();
   const hinges = [], emissive = { monitor: null, indicators: [] };
@@ -123,6 +131,12 @@ export function createLab(canvas, opts = {}) {
     scene.environment = envMap(); room.traverse(o => { if (o.isMesh && o.material.isMeshStandardMaterial) o.material.envMapIntensity = .5; });
     room.traverse(o => { if (o.isMesh && o.material.name === 'lab_black_plastic') { o.material.metalness = 0; o.material.roughness = Math.max(o.material.roughness, .75); } });
     room.traverse(o => { if (o.isMesh && o.material.name === 'box_lid_filigree') { o.material.side = THREE.DoubleSide; o.material.alphaTest = o.material.alphaTest || .5; o.material.transparent = false; } });
+    // the box as its own model (it shows as itself on the move in to the stone): old dark bronze and iron, not a bright
+    // mirror; it takes the stone's red light, and the room's reflections only faintly
+    { const seen = new Set(); room.traverse(o => { if (!o.isMesh || !/^box_/.test(o.material.name) || seen.has(o.material)) return; const m = o.material; seen.add(m);
+      if (/filigree|relief|bright/.test(m.name)) m.color.multiplyScalar(.32); m.envMapIntensity = .15; m.roughness = Math.max(m.roughness, .5); }); }
+    // the papers by the box are old and yellowed, not white: close to the stone they take its red, not burn pale
+    room.traverse(o => { if (o.isMesh && /lab_paper|lab_voynich|lab_label|lab_binder/.test(o.material.name) && !o.material.userData.aged) { o.material.color.multiplyScalar(.15); o.material.userData.aged = true; } });
     // the stone: lifted out of its seat into the room itself, so it can rise to where it hangs above the box
     const seat = nodes.gem_seat; glowAt = nodes.gem_glow || seat;
     let stoneMesh = null; room.traverse(o => { if (!stoneMesh && o.isMesh && /stone/.test(o.material.name)) stoneMesh = o; });
@@ -130,6 +144,7 @@ export function createLab(canvas, opts = {}) {
       gemMat = stoneMesh.material;
       // its glow is a deep red-orange from inside; a model without one is given it
       if (gemMat.emissive && gemMat.emissive.getHex() === 0) gemMat.emissive.setHex(0xff3a14);
+      veinStone(stoneMesh);
       let top = stoneMesh; while (top.parent && top.parent !== seat && top.parent !== box && top.parent !== room) top = top.parent;
       stone = new THREE.Group(); scene.add(stone);
       top.getWorldPosition(stoneFrom); stone.position.copy(stoneFrom); stone.attach(top);
@@ -155,6 +170,58 @@ export function createLab(canvas, opts = {}) {
     for (let i = 1; i <= 8; i++) emissive.indicators.push(glowMat(nodes['indicator_' + i], i % 3 === 0 ? 0x66ff88 : 0xff3b22));
     mergeStatic(room);
   });
+
+  // the stone: black, red-veined, with many irregular flat facets. Its faces are flat (each catches the light as one plane,
+  // with sharp edges between them); its veins are drawn on it, not painted into a texture: open branching cracks running
+  // across the faces, as lava shows through cracks in obsidian, forking and tapering, crisp however close the view comes,
+  // pulsing slowly and swelling on the heartbeat. Taken in the stone's own space, so they stay on it as it turns
+  const veinU = { vTime: { value: 0 }, vPulse: { value: 0 }, vScale: { value: 1 } };
+  function veinStone(mesh) {
+    const m = mesh.material; mesh.geometry.computeBoundingSphere();
+    veinU.vScale.value = 1 / (mesh.geometry.boundingSphere.radius || 1);
+    m.map = null; m.emissiveMap = null; m.normalMap = null; m.flatShading = true;
+    m.color.setRGB(.012, .009, .009); m.metalness = .2; m.roughness = .1; m.envMapIntensity = 1.1; m.emissive.setHex(0xc81a06);
+    m.onBeforeCompile = sh => {
+      Object.assign(sh.uniforms, veinU);
+      sh.vertexShader = 'varying vec3 vObj;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vObj = position;');
+      sh.fragmentShader = `uniform float vTime, vPulse, vScale; varying vec3 vObj;
+        vec3 vh3(vec3 p) { p = vec3(dot(p, vec3(127.1, 311.7, 74.7)), dot(p, vec3(269.5, 183.3, 246.1)), dot(p, vec3(113.5, 271.9, 124.6))); return fract(sin(p) * 43758.5453); }
+        float vn(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(mix(vh3(i).x, vh3(i + vec3(1, 0, 0)).x, f.x), mix(vh3(i + vec3(0, 1, 0)).x, vh3(i + vec3(1, 1, 0)).x, f.x), f.y),
+                     mix(mix(vh3(i + vec3(0, 0, 1)).x, vh3(i + vec3(1, 0, 1)).x, f.x), mix(vh3(i + vec3(0, 1, 1)).x, vh3(i + vec3(1, 1, 1)).x, f.x), f.y), f.z); }
+        // the distance to the nearest crack: the borders between cells, each cell a chip of the stone
+        float crackDist(vec3 x) {
+          vec3 n = floor(x), f = fract(x), mr = vec3(0.0), mg = vec3(0.0); float md = 8.0;
+          for (int k = -1; k <= 1; k++) for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+            vec3 g = vec3(float(i), float(j), float(k)), r = g + vh3(n + g) - f; float d = dot(r, r);
+            if (d < md) { md = d; mr = r; mg = g; } }
+          md = 8.0;
+          for (int k = -2; k <= 2; k++) for (int j = -2; j <= 2; j++) for (int i = -2; i <= 2; i++) {
+            vec3 g = mg + vec3(float(i), float(j), float(k)), r = g + vh3(n + g) - f;
+            if (dot(mr - r, mr - r) > .00001) md = min(md, dot(.5 * (mr + r), normalize(r - mr))); }
+          return md;
+        }
+        // the cracks: a coarse set and a fine set branching off it; each is broken open in places (no closed cells) and
+        // thins to nothing where it ends, so they fork and taper
+        float cracks(vec3 p0) {
+          vec3 p = p0 * 1.7 + (vec3(vn(p0 * 2.3), vn(p0 * 2.3 + 5.1), vn(p0 * 2.3 + 9.7)) - .5) * .35;
+          float v = 0.0;
+          for (int o = 0; o < 2; o++) {
+            float fo = float(o), d = crackDist(p);
+            float open = smoothstep(.38 + .12 * fo, .62 + .1 * fo, vn(p * (1.6 + fo) + 3.7 * fo));   // where this set is cracked through
+            float w = (.035 - .018 * fo) * open;                                                     // and how wide: tapering to nothing
+            float core = 1.0 - smoothstep(w * .45, w, d), glow = exp(-d / max(w * 2.2, 1e-4)) * open;
+            v = max(v, (core + .3 * glow) * (1.0 - .45 * fo));
+            p = p * 2.6 + vec3(1.7, 4.1, 2.3);
+          }
+          return v;
+        }
+      ` + sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        { vec3 q = vObj * vScale; float pulse = .7 + .3 * sin(vTime * .9 - vn(q * 2.0) * 6.2831) + .5 * vPulse;
+          totalEmissiveRadiance *= cracks(q) * pulse; }`);
+    };
+    m.needsUpdate = true;
+  }
 
   function envMap() {
     const es = new THREE.Scene();
@@ -240,12 +307,12 @@ export function createLab(canvas, opts = {}) {
     uniforms: { tDiffuse: { value: null }, tDepth: { value: null }, invProj: { value: new THREE.Matrix4() }, camWorld: { value: new THREE.Matrix4() },
       pA: { value: null }, dA: { value: null }, vpA: { value: new THREE.Matrix4() }, vA: { value: new THREE.Matrix4() }, rA: { value: new THREE.Vector2(1, 30) }, wA: { value: 0 },
       pB: { value: null }, dB: { value: null }, vpB: { value: new THREE.Matrix4() }, vB: { value: new THREE.Matrix4() }, rB: { value: new THREE.Vector2(1, 30) }, wB: { value: 0 },
-      focusUv: { value: new THREE.Vector2(.5, .5) }, near: { value: 1 }, far: { value: 100 }, amount: { value: 1 }, resolution: { value: new THREE.Vector2(1, 1) },
+      focusUv: { value: new THREE.Vector2(.5, .5) }, band: { value: 1 }, near: { value: 1 }, far: { value: 100 }, amount: { value: 1 }, resolution: { value: new THREE.Vector2(1, 1) },
       tBox: { value: null }, tBoxUv: { value: null }, pAb: { value: null }, pBb: { value: null }, lbA: { value: 0 }, lbB: { value: 0 } },
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `#include <packing>
       uniform sampler2D tBox, tBoxUv, pAb, pBb; uniform float lbA, lbB;
-      uniform sampler2D tDiffuse, tDepth, pA, dA, pB, dB; uniform mat4 invProj, camWorld, vpA, vA, vpB, vB; uniform vec2 rA, rB, focusUv, resolution; uniform float wA, wB, near, far, amount; varying vec2 vUv;
+      uniform sampler2D tDiffuse, tDepth, pA, dA, pB, dB; uniform mat4 invProj, camWorld, vpA, vA, vpB, vB; uniform vec2 rA, rB, focusUv, resolution; uniform float wA, wB, near, far, amount, band; varying vec2 vUv;
       float farAway;   // 1 where the live view sees nothing of the room
       float blurAt;   // the miniature's softness here, in pixels on screen, used when sampling the painting
       // how much of a painting lands here: inside its frame, and the surface is the one its camera saw
@@ -275,7 +342,7 @@ export function createLab(canvas, opts = {}) {
         vec3 base = texture2D(tDiffuse, vUv).rgb; float dz = texture2D(tDepth, vUv).x;
         farAway = dz >= .99999 ? 1.0 : 0.0; if (farAway > .5) dz = .9999;
         float here = -perspectiveDepthToViewZ(dz, near, far), pointed = -perspectiveDepthToViewZ(texture2D(tDepth, focusUv).x, near, far);
-        blurAt = max(smoothstep(.012, .07, abs(here - pointed) / pointed) * .9, smoothstep(.07, .34, abs(vUv.y - focusUv.y))) * amount * 6.0 * min(1.0, min(resolution.x, resolution.y) / 800.0);   // gentler than the room's own: the painting is already soft where it should be
+        blurAt = max(smoothstep(.012, .07, abs(here - pointed) / pointed) * .9, smoothstep(.07, .34, abs(vUv.y - focusUv.y)) * band) * amount * 6.0 * min(1.0, min(resolution.x, resolution.y) / 800.0);   // gentler than the room's own: the painting is already soft where it should be
         vec4 vpos = invProj * vec4(vUv * 2.0 - 1.0, dz * 2.0 - 1.0, 1.0); vpos /= vpos.w; vec3 w = (camWorld * vpos).xyz;
         vec4 a = wA > 0.0 ? lay(w, pA, dA, vpA, vA, rA) : vec4(0.0), b = wB > 0.0 ? lay(w, pB, dB, vpB, vB, rB) : vec4(0.0);
         // the live box, where a plate has none: the painting gives way to it (its mask softened by a pixel, as the frame is)
@@ -318,15 +385,15 @@ export function createLab(canvas, opts = {}) {
   // where each point of the box is in the paintings of the two slots this frame, from coordinates baked per painting
   const boxUvRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
   const boxUvMat = new THREE.ShaderMaterial({ side: THREE.DoubleSide, uniforms: { selA: { value: 0 }, selB: { value: 0 } },
-    vertexShader: `attribute vec2 uvKa, uvKo, uvKc; uniform float selA, selB; varying vec4 vS;
-      vec2 pick(float s) { return s < .5 ? uvKa : s < 1.5 ? uvKo : uvKc; }
+    vertexShader: `attribute vec2 uvKa, uvKo; uniform float selA, selB; varying vec4 vS;
+      vec2 pick(float s) { return s < .5 ? uvKa : uvKo; }
       void main() { vS = vec4(pick(selA), pick(selB)); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `varying vec4 vS; void main() { gl_FragColor = vS; }` });
-  const SEL = { a: 0, open: 1, c: 2 };
-  // each vertex of the box, posed as in a painting (closed in the lamp-lit one, open in the others), seen by its camera
+  const SEL = { a: 0, open: 1 };
+  // each vertex of the box, posed as in a painting (closed in the lamp-lit one, open in the other), seen by its camera
   const bakeBoxUv = () => {
     if (!box) return;
-    const poses = [['uvKa', keys.a, 0], ['uvKo', keys.open, 1], ['uvKc', keys.c, 1]], v = new THREE.Vector3();
+    const poses = [['uvKa', keys.a, 0], ['uvKo', keys.open, 1]], v = new THREE.Vector3();
     const meshes = []; box.traverse(o => { if (o.isMesh) meshes.push(o); });
     for (const [name, key, o] of poses) {
       for (const h of hinges) h.o.quaternion.copy(h.base).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), o * OPEN_ANGLE));
@@ -340,9 +407,9 @@ export function createLab(canvas, opts = {}) {
     box.updateMatrixWorld(true);
   };
   // the paintings and the depth each camera saw, made once when they are loaded
-  // the key frames: a painting of the room from a known camera for each beat it rests on (lab: the lamp on; open: the box
-  // open; c: the firing, seen from far out; b: the end of the swing). Each is laid back on the room from its own camera;
-  // the two that weigh most this frame fill the pass's two slots
+  // the key frames: a painting of the room from a known camera for each beat it rests on (a: the lamp on; open: the box
+  // open, which the firing holds too). Each is laid back on the room from its own camera; the two that weigh most this
+  // frame fill the pass's two slots
   const keys = {};
   // a key frame's camera: its matrices as saved, or (from a Blender render) built from position, quaternion, vertical fov,
   // the frame's size and near/far, all in the room's own coordinates (y up, as the glb has them)
@@ -353,7 +420,7 @@ export function createLab(canvas, opts = {}) {
     c.matrixWorldInverse.copy(c.matrixWorld).invert();
     if (cj.projectionMatrix) c.projectionMatrix.fromArray(cj.projectionMatrix); else { c.updateProjectionMatrix(); cj.projectionMatrix = c.projectionMatrix.toArray(); }
     c.projectionMatrixInverse.copy(c.projectionMatrix).invert(); return c; };
-  const loadProjection = async (base = 'models/web/proj/', names = ['a', 'open', 'c', ...(opts.ruth3d ? ['b2'] : []), ...(/\/proj\/$/.test(base) ? ['b'] : [])]) => {
+  const loadProjection = async (base = 'models/web/room2/', names = ['a', 'open']) => {
     const tl = new THREE.TextureLoader(), get = u => fetch(u).then(r => r.ok ? r.json() : null).then(j => typeof j === 'string' ? JSON.parse(j) : j).catch(() => null);
     await ready;
     await Promise.all(names.map(async k => {
@@ -378,7 +445,7 @@ export function createLab(canvas, opts = {}) {
     if (Object.values(keys).some(k => k.liveBox)) bakeBoxUv();
     proj.enabled = depthCopy.enabled = Object.values(keys).some(k => k.tex);
   };
-  // what a key frame's camera saw, as depth; redone when Ruth comes into the room, so her painting lands on her
+  // what a key frame's camera saw, as depth
   function keyDepth(key) {
     depthMat.uniforms.zNear.value = key.range[0]; depthMat.uniforms.zFar.value = key.range[1];
     const old = scene.overrideMaterial, bg = scene.background, tm = renderer.toneMapping, sv = stone && stone.visible;
@@ -386,10 +453,9 @@ export function createLab(canvas, opts = {}) {
     const glass = []; scene.traverse(o => { if (o.isMesh && o.visible && /window_glass/.test(o.material.name)) { glass.push(o); o.visible = false; } });
     scene.overrideMaterial = depthMat; scene.background = new THREE.Color(0); renderer.toneMapping = THREE.NoToneMapping; halo.visible = false; beam.visible = false; if (stone) stone.visible = false;
     photonSprites.forEach(sp => sp.visible = false);   // sprites would print as solid squares in the depth
-    const rv = ruth && ruth.visible; if (ruth) ruth.visible = true;   // she stands in the end frames whichever loads first
     const bv = box && box.visible; if (box && key.liveBox) box.visible = false;   // left out, so the live box shows over the plate
     renderer.setRenderTarget(key.depth); renderer.clear(); renderer.render(scene, key.cam); renderer.setRenderTarget(null);
-    if (ruth) ruth.visible = rv; if (box) box.visible = bv; photonSprites.forEach(sp => sp.visible = true);
+    if (box) box.visible = bv; photonSprites.forEach(sp => sp.visible = true);
     scene.overrideMaterial = old; scene.background = bg; renderer.toneMapping = tm; halo.visible = true; beam.visible = true; if (stone) stone.visible = sv; glass.forEach(o => o.visible = true);
   }
   // a key frame's camera, zoomed so the screen shows only the solid part of its painting (never the black past the room's
@@ -458,15 +524,15 @@ export function createLab(canvas, opts = {}) {
     u['p' + slot].value = key.tex; u['d' + slot].value = key.depth.texture; u['vp' + slot].value.copy(key.vp); u['v' + slot].value.copy(key.cam.matrixWorldInverse); u['r' + slot].value.set(key.range[0], key.range[1]); };
   const focus = new ShaderPass({
     uniforms: { tDiffuse: { value: null }, tDepth: { value: null }, focusUv: { value: new THREE.Vector2(.5, .5) }, resolution: { value: new THREE.Vector2(1, 1) },
-      near: { value: 1 }, far: { value: 100 }, amount: { value: 1 } },
+      near: { value: 1 }, far: { value: 100 }, amount: { value: 1 }, band: { value: 1 } },
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `#include <packing>
-      uniform sampler2D tDiffuse, tDepth; uniform vec2 focusUv, resolution; uniform float near, far, amount; varying vec2 vUv;
+      uniform sampler2D tDiffuse, tDepth; uniform vec2 focusUv, resolution; uniform float near, far, amount, band; varying vec2 vUv;
       float viewZ(vec2 p) { return -perspectiveDepthToViewZ(texture2D(tDepth, p).x, near, far); }
       void main() {
         float here = viewZ(vUv), pointed = viewZ(focusUv);
         // how far in front of or behind the point in focus, as a share of the distance, plus the miniature's band
-        float blur = max(smoothstep(.012, .07, abs(here - pointed) / pointed) * .9, smoothstep(.07, .34, abs(vUv.y - focusUv.y))) * amount;
+        float blur = max(smoothstep(.012, .07, abs(here - pointed) / pointed) * .9, smoothstep(.07, .34, abs(vUv.y - focusUv.y)) * band) * amount;
         vec2 px = vec2(1.0) / resolution * blur * 12.0 * min(1.0, min(resolution.x, resolution.y) / 800.0);   // a small screen shows less room per pixel: less blur
         float turn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
         vec3 soft = vec3(0.0);
@@ -476,105 +542,99 @@ export function createLab(canvas, opts = {}) {
   });
   composer.addPass(focus);
   const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .35, .4, 1.0); composer.addPass(bloom);
-  // Ruth's photograph, until her model is in the room: laid over the end of the orbit, the stone on the stone, then pushed
-  // in toward her eye
-  const plate = new ShaderPass({
-    uniforms: { tDiffuse: { value: null }, reverse: { value: null }, mixB: { value: 0 }, cover: { value: new THREE.Vector2(1, 1) }, eyeAt: { value: new THREE.Vector2(.5, .5) },
-      eyeZoom: { value: 0 }, shift: { value: new THREE.Vector2() } },
-    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: `uniform sampler2D tDiffuse, reverse; uniform float mixB, eyeZoom; uniform vec2 cover, eyeAt, shift; varying vec2 vUv;
-      void main() {
-        vec3 c = texture2D(tDiffuse, vUv).rgb;
-        if (mixB > 0.0) { vec2 s = eyeAt + (vUv - eyeAt) / (1.0 + 5.0 * eyeZoom * eyeZoom); vec2 p = (s - .5) * cover + .5 - shift;
-          c = mix(c, texture2D(reverse, p).rgb, mixB); }
-        gl_FragColor = vec4(c, 1.0);
-      }`,
-  });
-  composer.addPass(plate);
-  // over her photograph, the real stone and its halo still hang where her photograph has them
-  const fg = new THREE.Scene(), fgPass = new RenderPass(fg, camera); fgPass.clear = false; fgPass.clearDepth = true; composer.addPass(fgPass);
   composer.addPass(new OutputPass());
   composer.addPass(proj);
-  // the turn itself: a fast sideways blur, strongest in the middle of the swing, as the plate lab has it
-  const turnBlur = new ShaderPass({ uniforms: { tDiffuse: { value: null }, amt: { value: 0 }, zoom: { value: 0 }, eyeBlur: { value: 0 }, eyeAt: { value: new THREE.Vector2(.5, .5) } },
+  // inside the stone: its faces, each a flat plane of the crystal bending what is behind it; red veins flowing through it
+  // in a slow kaleidoscope of fractal light; then the church coming through the faces, until it is all there is. Drawn on
+  // the finished picture, so its colours are the screen's own (the church shows exactly as painted)
+  const trip = new ShaderPass({
+    uniforms: { tDiffuse: { value: null }, church: { value: null }, plain: { value: null }, time: { value: 0 }, amt: { value: 0 }, churchMix: { value: 0 }, under: { value: 1 },
+      pulse: { value: 0 }, res: { value: new THREE.Vector2(1, 1) }, csize: { value: new THREE.Vector2(1, 1) }, cmid: { value: new THREE.Vector2(.5, .5) }, shiftPx: { value: new THREE.Vector2() }, sc: { value: 1 } },
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: `uniform sampler2D tDiffuse; uniform float amt, zoom, eyeBlur; uniform vec2 eyeAt; varying vec2 vUv; void main() {
-      // and the push toward Ruth's eye over her painting, done on the finished picture so the painting stays on the room
-      vec2 shown = mix(eyeAt, vec2(.5), smoothstep(0.0, 1.0, zoom));   // her eye comes to the middle of the screen as it nears
-      vec3 acc = vec3(0.0); for (int i = 0; i < 14; i++) { float f = float(i) / 13.0; vec2 q = shown + (vUv - shown) * (1.0 - eyeBlur * .35 * f), p = eyeAt + (q - shown) / (1.0 + 26.0 * zoom * zoom); acc += texture2D(tDiffuse, p + vec2(amt * (f - .5), 0.0)).rgb; }
-      gl_FragColor = vec4(acc / 14.0, 1.0); }` });
-  turnBlur.enabled = false; composer.addPass(turnBlur);
-  // the pull back: the last frame before it, shrinking into its place in the wide view and fading
-  const dissolve = new ShaderPass({ uniforms: { tDiffuse: { value: null }, tSnap: { value: null }, at: { value: new THREE.Vector4(.5, .5, .5, .5) }, alpha: { value: 0 } },
-    vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-    fragmentShader: `uniform sampler2D tDiffuse, tSnap; uniform vec4 at; uniform float alpha; varying vec2 vUv; void main() {
-      vec3 c = texture2D(tDiffuse, vUv).rgb; vec2 q = (vUv - at.xy) / at.zw + .5;
-      vec2 e = min(q, 1.0 - q); float inside = smoothstep(0.0, .02, min(e.x, e.y));
-      gl_FragColor = vec4(mix(c, texture2D(tSnap, q).rgb, alpha * inside), 1.0); }` });
-  dissolve.enabled = false; composer.addPass(dissolve);
-  // the pull back's state: where the last frame from the lamp-lit camera sits in C's view, and that frame itself
-  const pull = { rect: null, snap: null, win: null };
-  const keepSnap = () => {
-    const pr = renderer.getPixelRatio(), sw = Math.round(W * pr), sh = Math.round(H * pr);
-    if (!pull.snap || pull.snap.image.width !== sw || pull.snap.image.height !== sh) { if (pull.snap) pull.snap.dispose(); pull.snap = new THREE.FramebufferTexture(sw, sh); }
-    renderer.setRenderTarget(null); renderer.copyFramebufferToTexture(pull.snap);
-  };
-  const pullZ = () => { const t = THREE.MathUtils.smoothstep(st.wide, 0, 1); return t; }
-  // where A's view (as framed now) lands in C's painting: its corners carried out to the table's distance and seen by C
-  const pullRect = () => {
-    const ka = keys.a, kc = keys.c, Pa = frameKey(ka, view.x, -view.y), inv = Pa.clone().invert(), d = stone ? ka.cam.position.distanceTo(stone.position) : 18;
-    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(ka.cam.quaternion);
-    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
-    for (const [x, y] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-      const v = new THREE.Vector3(x, y, .5).applyMatrix4(inv).applyMatrix4(ka.cam.matrixWorld), dir = v.sub(ka.cam.position).normalize();
-      const pt = ka.cam.position.clone().addScaledVector(dir, d / dir.dot(fwd)).applyMatrix4(kc.cam.matrixWorldInverse).applyMatrix4(kc.cam.projectionMatrix);
-      x0 = Math.min(x0, pt.x); x1 = Math.max(x1, pt.x); y0 = Math.min(y0, pt.y); y1 = Math.max(y1, pt.y);
-    }
-    return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, hx: (x1 - x0) / 2, hy: (y1 - y0) / 2, mx: 0, my: 0 };
-  };
-
-  // Ruth: her own model, loaded just before the swing, standing at the worktable across from where the orbit ends, leaning
-  // on it in her 'lean' pose. Until that pose is in her model, the orbit ends on her photograph instead
-  const ruthRim = { value: 0 };
-  let reverseLoad = null, ruth = null, ruthHead = null, ruthMixer = null;
-  const loadPlate = () => new THREE.TextureLoader().loadAsync('models/web/lab_reverse.webp').then(t => {
-    t.colorSpace = THREE.SRGBColorSpace; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; plate.uniforms.reverse.value = t;
+    fragmentShader: `uniform sampler2D tDiffuse, church, plain; uniform float time, amt, churchMix, under, pulse, sc; uniform vec2 res, csize, cmid, shiftPx; varying vec2 vUv;
+      mat2 rot(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }
+      float fbm(vec2 p) { float a = .5, s = 0.0; for (int i = 0; i < 4; i++) { s += a * noise(p); p = rot(.6) * p * 2.03 + 3.1; a *= .5; } return s; }
+      // the church as the page shows it at rest: covering the screen, a little larger than it, so the pointer can shift it
+      vec2 churchUv(vec2 uv) {
+        vec2 px = vec2(uv.x * res.x, (1.0 - uv.y) * res.y), ip = (px - .5 * res - shiftPx) / sc + cmid;
+        return clamp(vec2(ip.x / csize.x, 1.0 - ip.y / csize.y), .001, .999);
+      }
+      // the veins: thin rivers of light in a slowly flowing field (ridges of warped noise)
+      float veins(vec2 p, float t) {
+        vec2 q = vec2(fbm(p + vec2(0.0, t * .05)), fbm(p + vec2(5.2, 1.3) - vec2(t * .04, 0.0)));
+        float n = fbm(p * 1.2 + 1.8 * q + vec2(t * .02, -t * .015));
+        return pow(1.0 - abs(2.0 * n - 1.0), 30.0);
+      }
+      // the well inside the stone: its faces in rings, each ring a smaller copy of the one outside it (log-polar, so the
+      // faces keep their shape), the angle folded into mirrored wedges, all falling slowly inward. Returns the frame's
+      // colour; n is the face's tilt, for what it bends behind it
+      vec3 well(vec2 p, float t, float beat, out vec2 n, out float vein) {
+        float r = max(length(p), 1e-4), a = atan(p.y, p.x) + t * .02, seg = 6.2831853 / 7.0;
+        a = abs(mod(a, seg) - seg * .5);                          // seven mirrored wedges
+        const float M = 21.0;                                     // faces round each ring
+        vec2 lp = vec2(log(r), a) * (M / 6.2831853);
+        lp.x -= t * .16;                                          // falling in
+        lp.y += .18 * sin(lp.x * .9 + t * .13);                   // each ring turning a little against the next
+        // diamond faces, so the rings wind in as crossing spirals, as a cut stone's facets do
+        vec2 dl = vec2(lp.x + lp.y, lp.x - lp.y) * .7071, id = floor(dl), f = fract(dl) - .5;
+        n = vec2(hash(id), hash(id + 4.3)) - .5;
+        float shade = hash(id + 9.1);
+        // the face: a plane of dark red glass, lit across its slope, with a sheen that slides over the faces slowly
+        float slope = .5 + 1.3 * dot(n, f);
+        float sheen = pow(max(0.0, sin(lp.x * .7 - lp.y * 1.3 + t * .5 + shade * 2.0)), 10.0);
+        vec3 col = vec3(.08, .008, .005) * (.35 + shade) * slope + vec3(.55, .09, .03) * sheen * (.3 + .7 * shade);
+        // seen through it, bent by its tilt: the veins, flowing inward with the faces, split a little into colours
+        vec2 vp = lp * .8 + n * .45;
+        float vr = veins(vp + vec2(.03, 0.0), t), vg = veins(vp, t);
+        vein = vg;
+        col += (vec3(.95, .07, .02) * vr + vec3(.6, .2, .05) * vg * vg) * beat;
+        // its edges catching the light: a thin line, and now and then a glint running along it
+        float e = .5 - max(abs(f.x), abs(f.y));
+        float glint = pow(max(0.0, sin(lp.x * 1.7 + lp.y * .6 - t * .9 + shade * 6.2831)), 24.0);
+        col += vec3(1.0, .3, .1) * smoothstep(.035, .0, e) * (.12 + 1.4 * glint);
+        // far in, the faces are too small to see: they give way to the glow at the heart, which swells on the beat
+        float far = smoothstep(.05, .012, r);
+        col = mix(col, vec3(.5, .06, .02) * beat, far * .7);
+        col += vec3(1.0, .35, .1) * exp(-r * 16.0) * .45 * beat;
+        return col;
+      }
+      void main() {
+        float t = time, beat = 1.0 + .45 * pulse;
+        vec2 p = (vUv - .5) * vec2(res.x / res.y, 1.0);
+        vec2 n; float vein;
+        vec3 col = well(p, t, beat, n, vein);
+        col *= 1.0 - .55 * smoothstep(.45, 1.05, length(p));                                // darker to the rim, as deep glass is
+        // the stone close (the frame under it), seen through its own faces as the visions come up
+        col = mix(col, col * .6 + texture2D(tDiffuse, vUv + n * .03).rgb, under * .6);
+        // the church, coming through the faces: each face shows it from its own angle, the angles closing to nothing,
+        // the visions going out of it, until it is the church in the stone
+        float cm = smoothstep(0.0, 1.0, churchMix);
+        vec3 ch = texture2D(plain, churchUv(vUv + n * .12 * (1.0 - cm))).rgb;
+        vec3 seen = mix(col, ch * (.85 + .6 * vein * (1.0 - cm)) + col * .4 * (1.0 - cm), smoothstep(.0, .6, churchMix));
+        seen = mix(seen, texture2D(church, churchUv(vUv)).rgb, smoothstep(.55, 1.0, churchMix));
+        gl_FragColor = vec4(mix(texture2D(tDiffuse, vUv).rgb, seen, amt), 1.0);
+      }`,
   });
-  const loadReverse = () => reverseLoad || (reverseLoad = loader.loadAsync('models/web/ruth.glb').then(g => {
-    const lean = g.animations.find(a => /lean/i.test(a.name));
-    if (!opts.ruth3d) return loadPlate();   // ?ruth=plate ends on her photograph instead
-    ruth = g.scene; ruth.visible = false;
-    // a cool rim round her edges, as from a window behind her: only on her, so nothing else in the room is lit by it
-    ruth.traverse(o => { if (!o.isMesh) return; o.material.onBeforeCompile = sh => { sh.uniforms.ruthRim = ruthRim;
-      sh.fragmentShader = `uniform float ruthRim;
-` + sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
- float fres = pow(1.0 - clamp(dot(normalize(vNormal), normalize(vViewPosition)), 0.0, 1.0), 3.0); totalEmissiveRadiance += vec3(.25, .4, .9) * fres * ruthRim * .3;`); };
-      o.material.needsUpdate = true; });
-    // she throws no shadow map of her own: under her painting it never shows, and a skinned shadow costs its own shaders mid-swing
-    ruth.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; o.frustumCulled = false; } if (!ruthHead && /head|spine\.?006/i.test(o.name)) ruthHead = o; });
-    // her real height, 1.70 m, whatever units the model is in
-    const bb = new THREE.Box3().setFromObject(ruth), h = bb.max.y - bb.min.y || 1; ruth.scale.multiplyScalar(1.7 / h);
-    if (lean) { ruthMixer = new THREE.AnimationMixer(ruth); const a = ruthMixer.clipAction(lean); a.play(); a.paused = true; a.time = lean.duration; ruthMixer.update(0); }
-    scene.add(ruth); placeRuth();
-    for (const k of ['b2', 'ruth']) if (keys[k] && keys[k].depth) keyDepth(keys[k]);
-    // her shaders made now, while the machine fires, not on the frame she comes into view (a 300 ms stall)
-    // (made for the frame's own render target, whose colour space is the one they are drawn in)
-    const prevRT = renderer.getRenderTarget(); renderer.setRenderTarget(composer.renderTarget1);
-    ruth.visible = true; const done = renderer.compileAsync ? renderer.compileAsync(scene, camera) : Promise.resolve(renderer.compile(scene, camera)); ruth.visible = false;
-    renderer.setRenderTarget(prevRT);
-    // and her textures sent to the GPU now, not on the frame she first shows
-    ruth.traverse(o => { if (o.isMesh) for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap']) if (o.material[k]) renderer.initTexture(o.material[k]); });
-    return done.catch(() => {});
-  }).catch(() => loadPlate()));
-  // where she stands: her model is made for its place in this room, root on the floor at (0, 0.09) unturned; its lean
-  // puts her hands on the worktable and turns her to the stone
-  const placeRuth = () => {
-    if (!ruth) return;
-    ruth.position.set(0, 0, .09); ruth.rotation.set(0, 0, 0); ruth.updateMatrixWorld(true);
+  trip.enabled = false; composer.addPass(trip);
+  let tripTime = 0;
+  const black = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1); black.needsUpdate = true;
+  // the church: two images or canvases, shown at their own colours: the church in the stone, where the visions end, and
+  // the church plain, which comes through the faces before it
+  const asTex = el => { const t = new THREE.Texture(el); t.colorSpace = THREE.NoColorSpace; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.needsUpdate = true; renderer.initTexture(t); return t; };
+  const setChurch = (el, plainEl) => {
+    const u = trip.uniforms; for (const k of ['church', 'plain']) if (u[k].value) u[k].value.dispose();
+    u.church.value = asTex(el); u.plain.value = plainEl ? asTex(plainEl) : u.church.value;
+    u.csize.value.set(el.naturalWidth || el.width, el.naturalHeight || el.height);
   };
+  // the move in: straight along the line from the painting's camera to the stone, its turn never changing; the view's
+  // window slides to bring the stone to the middle. It ends with the stone larger than the screen
+  const dive = { d0: 0, at: null, ndc: null };
 
   let shadowsOnce = false;
-  let frameW = VIEW.width, dist = 30, coverX = 1, coverY = 1, fovBase = VIEW.fov, framedP = null;
+  let frameW = VIEW.width, dist = 30, fovBase = VIEW.fov, framedP = null;
   const resize = () => {
     W = canvas.clientWidth || innerWidth; H = canvas.clientHeight || innerHeight;
     renderer.setSize(W, H, false); composer.setSize(W, H); depthCopyRT.setSize(Math.round(W * renderer.getPixelRatio()), Math.round(H * renderer.getPixelRatio())); boxRT.setSize(Math.round(W * renderer.getPixelRatio()), Math.round(H * renderer.getPixelRatio())); boxUvRT.setSize(Math.round(W * renderer.getPixelRatio()), Math.round(H * renderer.getPixelRatio()));
@@ -583,100 +643,70 @@ export function createLab(canvas, opts = {}) {
     // the same width of room on any screen; a tall screen sees more floor
     camera.fov = fovBase = 2 * Math.atan(Math.tan(VIEW.fov * Math.PI / 360) * Math.max(1, 1.4 / camera.aspect)) * 180 / Math.PI;
     frameW = VIEW.width; dist = frameW / 2 / (Math.tan(camera.fov * Math.PI / 360) * camera.aspect);
-    const a = W / H, pa = REV.w / REV.h; coverX = a > pa ? 1 : a / pa; coverY = a > pa ? pa / a : 1; plate.uniforms.cover.value.set(coverX, coverY);
   };
   resize(); addEventListener('resize', resize);
 
   const look = { x: 0, y: 0 }, view = { x: 0, y: 0 }, focusAt = new THREE.Vector2(.5, .5);
-  let time = 0, pointerActive = false, heldFocus = null, orbit = null;
+  let time = 0, pointerActive = false, heldFocus = null;
   const v3 = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3();
   const toScreen = p => { v3.copy(p).project(camera); return { x: (v3.x * .5 + .5) * W, y: (-v3.y * .5 + .5) * H }; };
 
   const render = dt => {
-    // the pull back starts: one last frame from the lamp-lit camera, kept, and where it sits in C's view
-    // (kept from the frame before when the stone has lifted, so the start costs nothing; otherwise drawn once more now)
-    if (st.wide > 0 && !pull.rect && keys.a && keys.a.tex && keys.c && keys.c.tex && st.swing <= 0 && !capture.depth) {
-      if (!pull.fresh) { const w = st.wide; st.wide = 0; render(0); st.wide = w; keepSnap(); }
-      pull.rect = pull.fresh || pullRect(); pull.fresh = null;
-    }
-    if (st.wide <= 0 && pull.rect) pull.rect = null;
     time += dt;
     // the pointer shifts the view a little, as on the moor: the camera itself moves, so near things move more than far
     const idleX = Math.sin(time * .17) * .55, idleY = Math.sin(time * .11 + 1.3) * .35, ease = 1 - Math.exp(-dt * 4);
     view.x += ((pointerActive ? look.x : idleX) - view.x) * ease; view.y += ((pointerActive ? look.y : idleY) - view.y) * ease;
+    churchShift.x = -view.x * CHURCH_SHIFT * W; churchShift.y = -view.y * CHURCH_SHIFT * H;
+    // the church over all: once it has the screen, the room is no longer drawn
+    if (st.trip >= 1 && tripTime > 4 && trip.uniforms.church.value) {
+      tripUniforms(dt); trip.uniforms.tDiffuse.value = black;
+      renderer.setRenderTarget(null); trip.fsQuad.render(renderer); return;
+    }
     const base = VIEW.target.clone().addScaledVector(VIEW.dir, dist);
     right.crossVectors(VIEW.dir, THREE.Object3D.DEFAULT_UP).normalize().negate(); up.crossVectors(right, VIEW.dir.clone().negate()).normalize();
     const sx = -view.x * .011 * frameW, sy = view.y * .007 * frameW;
-    if (st.swing <= 0 || !stone) {
-      camera.position.copy(base).addScaledVector(right, sx).addScaledVector(up, sy);
-      camera.up.set(0, 1, 0); camera.lookAt(VIEW.target.clone().addScaledVector(right, sx * .35).addScaledVector(up, sy * .35));
-      camera.fov = fovBase; camera.near = dist * .6; camera.far = dist * 1.6; camera.clearViewOffset(); orbit = null; if (box) box.visible = true;
-      // resting on a painting: its own camera, framed to its solid part; for the firing, over to frame C's
-      if (keys.a && keys.a.tex) {
-        const ka = keys.a, kc = keys.c && keys.c.tex ? keys.c : null;
-        if (kc && st.wide > 0 && pull.rect) {
-          // the pull back to the whole lab: C's own camera, its view opening out from where the last frame sat in it to its
-          // rest; that last frame shrinks into its place over it and fades (see the dissolve pass)
-          frameKey(kc); const z = pullZ(), r = pull.rect, w = kc.win;
-          const win = { cx: r.cx + (w.cx - r.cx) * z, cy: r.cy + (w.cy - r.cy) * z, hx: r.hx + (w.hx - r.hx) * z, hy: r.hy + (w.hy - r.hy) * z, mx: w.mx * z, my: w.my * z };
-          camera.position.copy(kc.cam.position); camera.quaternion.copy(kc.cam.quaternion); camera.near = kc.cj.near; camera.far = kc.cj.far;
-          framedP = frameKey(kc, view.x, -view.y, win); pull.win = win;
-        } else {
-          camera.position.copy(ka.cam.position); camera.quaternion.copy(ka.cam.quaternion); camera.near = ka.cj.near; camera.far = ka.cj.far;
-          framedP = frameKey(ka, view.x, -view.y);
+    camera.position.copy(base).addScaledVector(right, sx).addScaledVector(up, sy);
+    camera.up.set(0, 1, 0); camera.lookAt(VIEW.target.clone().addScaledVector(right, sx * .35).addScaledVector(up, sy * .35));
+    camera.fov = fovBase; camera.near = dist * .6; camera.far = dist * 1.6; camera.clearViewOffset(); if (box) box.visible = true;
+    // resting on the painting: its own camera, framed to its solid part (the firing holds this framing)
+    const ka = keys.a && keys.a.tex ? keys.a : null;
+    if (ka) {
+      camera.position.copy(ka.cam.position); camera.quaternion.copy(ka.cam.quaternion); camera.near = ka.cj.near; camera.far = ka.cj.far;
+      framedP = frameKey(ka, view.x, -view.y);
+      if (st.dive > 0 && stone) {
+        // the move in to the stone: the same lens and turn, the camera carried along its line to the stone, at a steady
+        // rate of growth (the distance falls by the same share each moment); the window slides to put the stone mid-screen
+        if (!dive.at) {
+          // aimed at the middle of the stone itself (its group's origin is at its foot)
+          const bb = new THREE.Box3().setFromObject(stone); dive.at = bb.getCenter(new THREE.Vector3()); dive.h = Math.max(.02, bb.max.y - bb.min.y);
+          dive.d0 = ka.cam.position.distanceTo(dive.at);
+          dive.ndc = dive.at.clone().applyMatrix4(ka.cam.matrixWorldInverse).applyMatrix4(ka.cam.projectionMatrix);
         }
-      } else if (st.wide > 0 && keys.c) { const k = st.wide * st.wide * (3 - 2 * st.wide), c = keys.c.cam;
-        camera.position.lerp(c.position, k); camera.quaternion.slerp(c.quaternion, k); camera.fov += (keys.c.cj.fov - camera.fov) * k;
-        camera.near += (keys.c.cj.near - camera.near) * k; camera.far += (keys.c.cj.far - camera.far) * k; }
-    } else {
-      // P.4: a true orbit round the hanging stone to Ruth's side, closing in until the stone is as big as in her photograph
-      const T = stone.position;
-      if (!orbit) { const v = camera.position.clone().sub(T), d0 = v.length(); orbit = { yaw0: Math.atan2(v.x, v.z), pitch0: Math.asin(v.y / d0), d0, q0: toScreen(T) }; placeRuth();
-        // it turns the same way round each time; with Ruth it ends on the far side of the stone from her, looking at her face
-        orbit.turn = Math.PI * .92;
-        if (ruth) { const yEnd = Math.atan2(T.x - ruth.position.x, T.z - ruth.position.z); orbit.turn = ((yEnd - orbit.yaw0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI); } }
-      if (ruth) ruth.visible = st.swing > .3;
-      const k = st.swing < .5 ? 2 * st.swing * st.swing : 1 - Math.pow(-2 * st.swing + 2, 2) / 2;
-      // with Ruth in the room the lens widens through the turn, as her photograph was taken, so she shows from the waist up
-      if (ruth) camera.fov = fovBase + (50 - fovBase) * k;
-      const ppm1 = (REV.stoneW / REV.w / coverX * W) / .075, d1 = H / (2 * Math.tan(camera.fov * Math.PI / 360) * ppm1) * (ruth ? 1.6 : 1);   // with Ruth, back far enough for a mid-shot behind the crown
-      // it closes in on the stone in the first part of the turn, so the camera stays inside the room as it goes round
-      const kd = THREE.MathUtils.smoothstep(st.swing, 0, .4), dd = orbit.d0 * Math.pow(d1 / orbit.d0, kd);
-      const yw = orbit.yaw0 + orbit.turn * k, pt = orbit.pitch0 + ((ruth ? -.02 : .12) - orbit.pitch0) * k;   // with Ruth, level with the stone, as her photograph looks
-      camera.position.set(T.x + Math.sin(yw) * Math.cos(pt) * dd, T.y + Math.sin(pt) * dd, T.z + Math.cos(yw) * Math.cos(pt) * dd);
-      camera.up.set(0, 1, 0); camera.lookAt(T);
-      // with Ruth in the room, the push toward her eye is the camera itself moving in
-      camera.near = Math.max(.02, dd * .2); camera.far = dd + 12;
-      // the stone moves on screen from where it hung in the diorama to where it hangs in her photograph
-      const qb = revToScreen(REV.stone.x, REV.stone.y);
-      // as her photograph comes in, it holds its own box: only the real stone stays
-      if (box) box.visible = ruth || capture.sharp ? true : st.swing < .7;
-      camera.setViewOffset(W, H, (W / 2 - orbit.q0.x) * (1 - k) + (W / 2 - qb.x) * k, (H / 2 - orbit.q0.y) * (1 - k) + (H / 2 - qb.y) * k, W, H);
-    }
-    camera.updateProjectionMatrix();
-    if (framedP && st.swing <= 0) { camera.projectionMatrix.copy(framedP); camera.projectionMatrixInverse.copy(framedP).invert(); }
-    framedP = null;
-    // at the end of the swing on 3D Ruth, the view is the painting's own camera, whatever the screen's shape, so the
-    // painting sits exactly on the room (otherwise near things like the lamp show twice)
-    const endKey = ruth && keys.b2 && keys.b2.tex ? keys.b2 : null;
-    if (endKey && st.swing > 0) {
-      const k = THREE.MathUtils.smoothstep(st.swing, .8, 1);
-      if (k > 0) {
-        camera.position.lerp(endKey.cam.position, k); camera.quaternion.slerp(endKey.cam.quaternion, k);
-        const P = frameKey(endKey, view.x, -view.y);   // framed to its solid part, as at every beat
-        // the lens eases into the painting's own framing as the camera lands, so its edge (and the black past it) never shows
-        camera.near = endKey.cj.near; camera.far = endKey.cj.far; camera.updateProjectionMatrix();
-        const e = camera.projectionMatrix.elements; for (let i = 0; i < 16; i++) e[i] += (P.elements[i] - e[i]) * k;
-        camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+        const w = ka.win, k = st.dive, tanH = Math.tan(ka.cj.fov * Math.PI / 360) * w.hy;
+        // it ends with the stone half as tall again as the screen: inside its faces
+        const dEnd = dive.h * .34 / tanH, d = dive.d0 * Math.pow(dEnd / dive.d0, k);
+        const dir = dive.at.clone().sub(ka.cam.position).normalize();
+        camera.position.copy(dive.at).addScaledVector(dir, -d);
+        camera.near = Math.min(ka.cj.near, d * .25); camera.far = d + 30;
+        const c = THREE.MathUtils.smoothstep(k, 0, .55);
+        framedP = frameKey(ka, view.x, -view.y, { cx: w.cx + (dive.ndc.x - w.cx) * c, cy: w.cy + (dive.ndc.y - w.cy) * c, hx: w.hx, hy: w.hy, mx: w.mx, my: w.my });
+        // the painting's lens has its own near and far baked in; this close they are the camera's
+        const e = framedP.elements, n = camera.near, f = camera.far; e[10] = -(f + n) / (f - n); e[14] = -2 * f * n / (f - n);
       }
     }
+    camera.updateProjectionMatrix();
+    if (framedP) { camera.projectionMatrix.copy(framedP); camera.projectionMatrixInverse.copy(framedP).invert(); }
+    framedP = null;
     camera.updateMatrixWorld();
     focus.uniforms.near.value = camera.near; focus.uniforms.far.value = camera.far;
-    // the focus racks to where the pointer rests, or to the box when it is left alone
+    // the focus racks to where the pointer rests, or to the box when it is left alone; on the move in, to the stone
     const boxQ = stone ? toScreen(stone.position) : { x: W / 2, y: H / 2 };
-    const fx = heldFocus ? heldFocus.x : pointerActive ? (look.x + 1) * .5 : boxQ.x / W, fy = heldFocus ? heldFocus.y : pointerActive ? (1 - look.y) * .5 : 1 - boxQ.y / H;
+    const onStone = st.dive > 0 && !heldFocus;
+    const fx = onStone ? boxQ.x / W : heldFocus ? heldFocus.x : pointerActive ? (look.x + 1) * .5 : boxQ.x / W, fy = onStone ? 1 - boxQ.y / H : heldFocus ? heldFocus.y : pointerActive ? (1 - look.y) * .5 : 1 - boxQ.y / H;
     focusAt.x += (fx - focusAt.x) * (1 - Math.exp(-dt * 8)); focusAt.y += (fy - focusAt.y) * (1 - Math.exp(-dt * 8));
-    focus.uniforms.focusUv.value.copy(focusAt); focus.uniforms.amount.value = capture.sharp ? 0 : 1 - THREE.MathUtils.smoothstep(st.swing, 0, .3);
+    focus.uniforms.focusUv.value.copy(focusAt); focus.uniforms.amount.value = capture.sharp ? 0 : 1;
+    // close on the stone the miniature's band of focus opens out: the stone sharp top to bottom, only depth softens
+    focus.uniforms.band.value = proj.uniforms.band.value = 1 - THREE.MathUtils.smoothstep(st.dive, .45, .85);
 
     // the box opens; the stone wakes, lifts to hang above it and turns; the room comes up red
     const o = st.open, glowK = o * (.78 + .32 * st.pulse + .04 * Math.sin(time * 1.3)) + st.flash * .9;
@@ -684,8 +714,8 @@ export function createLab(canvas, opts = {}) {
     for (const h of hinges) h.o.quaternion.copy(h.base).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), o * OPEN_ANGLE));
     if (stone) {
       const k = THREE.MathUtils.smoothstep(st.lift, 0, 1);
-      stone.position.lerpVectors(stoneFrom, stoneHang, k); stone.position.y += k * .008 * Math.sin(time * 1.1);
-      stone.rotation.y += dt * .45 * k;
+      stone.position.lerpVectors(stoneFrom, stoneHang, k); stone.position.y += k * .008 * Math.sin(time * 1.1) * (1 - st.dive);
+      stone.rotation.y += dt * .45 * k * (1 - .6 * st.dive);
       stoneLight.position.copy(stone.position);
       if (nodes.laser_exit) {
         const a = nodes.laser_exit.getWorldPosition(new THREE.Vector3()), b = stone.position, d = b.clone().sub(a), len = d.length();
@@ -693,56 +723,44 @@ export function createLab(canvas, opts = {}) {
         beamMat.opacity = .55 * st.beam;
         photonSprites.forEach((sp, i) => { sp.position.copy(a).lerp(b, [.28, .55, .8][i]); sp.scale.setScalar(.06); sp.material.opacity = st.beam; });
       }
-      // the halo sits just behind the stone, as seen from the camera
+      // the halo sits just behind the stone, as seen from the camera; close in, it gives way to the stone's own faces
       halo.position.copy(stone.position).addScaledVector(camera.position.clone().sub(stone.position).normalize(), -.12);
       halo.scale.setScalar(.36 * (1 + .25 * st.pulse + .35 * st.flash));
-      halo.material.opacity = THREE.MathUtils.smoothstep(st.lift, 0, 1) * (.75 + .25 * st.pulse + .4 * st.flash);
-      // past the middle of the turn they are drawn over the photograph that comes in
-      const over = st.swing > .72 && !ruth ? fg : scene;   // once her photograph comes in if (stone.parent !== over) { over.add(stone); over.add(halo); }
+      halo.material.opacity = THREE.MathUtils.smoothstep(st.lift, 0, 1) * (.75 + .25 * st.pulse + .4 * st.flash) * (1 - THREE.MathUtils.smoothstep(st.dive, 0, .25));
     }
-    if (gemMat) gemMat.emissiveIntensity = Math.min(1.2 + 4.5 * st.lift + st.flash * 3, glowK * 6);
-    stoneLight.intensity = glowK * (14 + 8 * st.lift) * (.85 + .3 * st.pulse) * (ruth ? 1 - .7 * THREE.MathUtils.smoothstep(st.swing, .4, 1) : 1);   // close to Ruth's face it would burn her out
+    if (gemMat) gemMat.emissiveIntensity = Math.min(1.2 + 4.5 * st.lift + st.flash * 3, glowK * 6) * .55;
+    veinU.vTime.value = time; veinU.vPulse.value = st.pulse;
+    // close in, its light would burn the crown of panels round it white
+    stoneLight.intensity = glowK * (14 + 8 * st.lift) * (.85 + .3 * st.pulse) * (1 - .8 * THREE.MathUtils.smoothstep(st.dive, 0, .45));
     // the desk lamp, until it is switched off; then only the moon
     lampSpot.intensity = 14 * (1 - st.lamp); lampGlow.intensity = .25 * (1 - st.lamp);
     if (bulbMat) bulbMat.emissiveIntensity = 3 * (1 - st.lamp);
-    ruthRim.value = ruth && !(keys.b2 && keys.b2.tex) ? THREE.MathUtils.smoothstep(st.swing, .5, 1) : 0;   // not under her painting, where its edges would show
     moon.intensity = 1.0 + .4 * st.lamp; fill.intensity = .12 * (1 - .35 * st.lamp);
-    // Ruth's photograph over the end of the orbit
-    plate.uniforms.mixB.value = plate.uniforms.reverse.value ? THREE.MathUtils.smoothstep(st.swing, .72, 1) : 0;
-    plate.uniforms.eyeZoom.value = 0;   // the push is done on the finished picture
-    const e = revToScreen(REV.eye.x, REV.eye.y); plate.uniforms.eyeAt.value.set(e.x / W, 1 - e.y / H);
     canvas.style.opacity = st.fade;
     focus.uniforms.tDepth.value = composer.readBuffer.depthTexture;
-    turnBlur.uniforms.amt.value = st.swing < .98 ? Math.sin(Math.PI * Math.min(1, st.swing)) * .07 : 0;
-    // her painting, model or photograph: the push into her eye is done on the finished picture
-    const pushOnPicture = st.swing >= 1 && st.eyeZoom > 0;
-    turnBlur.uniforms.zoom.value = pushOnPicture ? st.eyeZoom : 0; turnBlur.uniforms.eyeBlur.value = pushOnPicture ? st.eyeBlur : 0; if (pushOnPicture) { const q = eyeScreen(); turnBlur.uniforms.eyeAt.value.set(q.x / W, 1 - q.y / H); }
-    turnBlur.enabled = (st.swing > .02 && st.swing < .98) || pushOnPicture;
     // resting on the paintings, nothing shows the live shadows (the paintings carry their own): they are drawn once and
-    // kept, and only redrawn while the camera swings through the live room (half the frame's draws)
-    renderer.shadowMap.autoUpdate = !proj.enabled || (st.swing > 0 && st.swing < 1);
+    // kept, and redrawn only on the move in, where the live stone's own light moves across what it is near
+    renderer.shadowMap.autoUpdate = !proj.enabled;
     if (proj.enabled && !shadowsOnce) { renderer.shadowMap.needsUpdate = true; shadowsOnce = true; }
     if (proj.enabled) {
       depthCopy.uniforms.tDepth.value = composer.readBuffer.depthTexture; proj.uniforms.tDepth.value = depthCopyRT.texture; proj.uniforms.invProj.value.copy(camera.projectionMatrixInverse); proj.uniforms.camWorld.value.copy(camera.matrixWorld);
       for (const k of ['near', 'far', 'amount']) proj.uniforms[k].value = focus.uniforms[k].value; proj.uniforms.focusUv.value.copy(focus.uniforms.focusUv.value); proj.uniforms.resolution.value.copy(focus.uniforms.resolution.value);
-      // which painting each beat rests on
-      const sw = THREE.MathUtils.smoothstep(st.swing, .35, .95), before = 1 - THREE.MathUtils.smoothstep(st.swing, .15, .75), wide = pull.rect && st.wide > 0 ? 1 : THREE.MathUtils.smoothstep(st.wide, .6, 1);
-      const want = [['a', (1 - st.lamp) * (1 - wide) * before], ['open', st.lamp * (1 - wide) * before], ['c', wide * before], [ruth && keys.b2 ? 'b2' : 'b', sw]]
-        .filter(([k, w]) => w > 0 && keys[k] && keys[k].tex).sort((x, y) => y[1] - x[1]);
+      // which painting each beat rests on: lamp-lit, then the lamp off and the box open (through the firing and the move in)
+      const want = [['a', 1 - st.lamp], ['open', st.lamp]].filter(([k, w]) => w > 0 && keys[k] && keys[k].tex).sort((x, y) => y[1] - x[1]);
       setSlot('A', want[0] && keys[want[0][0]], want[0] ? want[0][1] : 0); setSlot('B', want[1] && keys[want[1][0]], want[1] ? want[1][1] : 0);
-      // Ruth's photograph, where it comes in at the end of the swing, is on top of every painting
-      const under = 1 - plate.uniforms.mixB.value; proj.uniforms.wA.value *= under; proj.uniforms.wB.value *= under;
+      // close in, the paintings (made for the far view) would show their pixels and the seams of their depth: the room
+      // behind the stone becomes the live room, soft out of focus
+      const far = 1 - THREE.MathUtils.smoothstep(st.dive, .02, .22); proj.uniforms.wA.value *= far; proj.uniforms.wB.value *= far;
       const la = want[0] && keys[want[0][0]].liveBox ? 1 : 0, lb = want[1] && keys[want[1][0]].liveBox ? 1 : 0;
-      proj.uniforms.lbA.value = la; proj.uniforms.lbB.value = lb;
+      // close in, the box is its own model, not the painting's pixels stretched over it
+      const own = 1 - THREE.MathUtils.smoothstep(st.dive, 0, .1);
+      proj.uniforms.lbA.value = la * own; proj.uniforms.lbB.value = lb * own;
       if (la) { proj.uniforms.pAb.value = keys[want[0][0]].texBox; boxUvMat.uniforms.selA.value = SEL[want[0][0]]; }
       if (lb) { proj.uniforms.pBb.value = keys[want[1][0]].texBox; boxUvMat.uniforms.selB.value = SEL[want[1][0]]; }
       if ((la || lb) && box && !capture.depth) { drawBoxMask(); proj.uniforms.tBox.value = boxRT.texture; proj.uniforms.tBoxUv.value = boxUvRT.texture; }
     }
     // for paintings of the room alone: the stone, its halo, the beam and photons left out (they are drawn live over them)
-    // landing on Ruth's painting, the stone is the painted one: the live stone and its halo give way as the camera lands
-    const paintedStone = st.swing > 0 && ruth && keys.b2 && keys.b2.tex, landed = paintedStone ? THREE.MathUtils.smoothstep(st.swing, .82, .96) : 0;
-    if (landed > 0) halo.material.opacity *= 1 - landed;
-    if (stone) stone.visible = !capture.noStone && landed < 1; halo.visible = !capture.noStone && halo.visible; if (capture.noStone) { beamMat.opacity = 0; photonSprites.forEach(sp => sp.material.opacity = 0); }
+    if (stone) stone.visible = !capture.noStone; halo.visible = !capture.noStone && halo.visible; if (capture.noStone) { beamMat.opacity = 0; photonSprites.forEach(sp => sp.material.opacity = 0); }
     if (capture.depth) {
       // for painting over: each pixel's distance from the camera, white near to black far, between the near and far set
       const old = scene.overrideMaterial, bg = scene.background, tm = renderer.toneMapping;
@@ -751,45 +769,32 @@ export function createLab(canvas, opts = {}) {
       renderer.setRenderTarget(null); renderer.render(scene, camera);
       scene.overrideMaterial = old; scene.background = bg; renderer.toneMapping = tm; halo.visible = true;
     } else {
-      // the last frame before the pull back, over the wide view where it sits in it, fading as the view opens
-      dissolve.enabled = !!(pull.rect && pull.win && st.wide > 0 && st.wide < 1);
-      if (dissolve.enabled) { const r = pull.rect, w = pull.win, u = dissolve.uniforms;
-        u.tSnap.value = pull.snap; u.at.value.set(.5 + .5 * (r.cx - w.cx) / w.hx, .5 + .5 * (r.cy - w.cy) / w.hy, r.hx / w.hx, r.hy / w.hy);
-        u.alpha.value = 1 - THREE.MathUtils.smoothstep(st.wide, .02, .24); }
-      // its shader is made on the first frame of the room, not in the middle of the beat (that cost a 130 ms stall)
-      if (!pull.warm && proj.enabled) { pull.warm = true; if (!dissolve.enabled) { dissolve.enabled = true; dissolve.uniforms.alpha.value = 0; } if (!turnBlur.enabled) { turnBlur.enabled = true; turnBlur.uniforms.amt.value = 0; turnBlur.uniforms.zoom.value = 0; turnBlur.uniforms.eyeBlur.value = 0; } }
+      trip.enabled = st.trip > 0 && !!trip.uniforms.church.value;
+      // its shader is made on the first frame of the room, not on the beat it first shows
+      if (!tripWarm && proj.enabled && trip.uniforms.church.value) { tripWarm = true; trip.enabled = true; }
+      if (trip.enabled) tripUniforms(dt);
       composer.render(dt);
-      // once the stone hangs, each frame is kept: the pull back may start on the next
-      if (st.wide <= 0 && st.lift > .98 && st.swing <= 0 && keys.a && keys.a.tex && keys.c && keys.c.tex) { keepSnap(); pull.fresh = pullRect(); } else if (st.wide <= 0) pull.fresh = null;
     }
   };
+  let tripWarm = false;
+  const tripUniforms = dt => {
+    if (st.trip > 0) tripTime += dt;
+    const u = trip.uniforms, pr = renderer.getPixelRatio();
+    u.time.value = tripTime; u.amt.value = st.trip; u.churchMix.value = st.church; u.pulse.value = st.pulse;
+    // the room under the visions fades over their first seconds; after that it is no longer drawn
+    u.under.value = Math.max(0, 1 - tripTime / 4);
+    // in the frame's own pixels (the composer's targets are at the device's pixel ratio)
+    const f = churchFrame(W, H, u.csize.value.x, u.csize.value.y);
+    u.res.value.set(W * pr, H * pr); u.shiftPx.value.set(churchShift.x * pr, churchShift.y * pr); u.sc.value = f.sc * pr; u.cmid.value.set(f.cx, f.cy);
+  };
+  // where the church sits, in CSS pixels from the middle of the screen: the page sets it with the pointer, as on the moor
+  const churchShift = { x: 0, y: 0 };
 
-  // the page's helpers, as the plate lab has them
+  // the page's helpers
   const stoneScreen = () => stone ? toScreen(v3.copy(stone.position)) : { x: W / 2, y: H / 2 };
   const screen = () => glowAt ? toScreen(glowAt.getWorldPosition(new THREE.Vector3())) : stoneScreen();
   const nodeScreen = name => nodes[name] ? toScreen(nodes[name].getWorldPosition(new THREE.Vector3())) : null;
   const stonePx = () => { if (!stone) return 22; const a = toScreen(stone.position), b = toScreen(stone.position.clone().add(new THREE.Vector3(0, .1, 0))); return Math.abs(a.y - b.y) * .75; };
-  const revToScreen = (px, py) => ({ x: ((px / REV.w - .5) / coverX + .5) * W, y: ((py / REV.h - .5) / coverY + .5) * H });
-  // her eye: on her model, a little in front of the head bone; on her photograph, where it is in the picture
-  const ruthEye = () => { const e = (ruthHead || ruth).getWorldPosition(new THREE.Vector3()); e.y += .06; const toStone = stone ? stone.position.clone().sub(e).setY(0).normalize() : new THREE.Vector3(0, 0, -1); return e.add(toStone.multiplyScalar(.1)); };
-  // her eye in her painting, the one nearer the stone (B2's pixels), placed in the room on the ray from B2's camera at the
-  // distance of her head; the line from the stone ends there once the swing has landed on the painting
-  const PAINTED_EYE = { x: 752, y: 195 };   // the pupil
-  const paintedEye = () => {
-    const k = keys.b2; if (!k) return null;
-    const ndc = new THREE.Vector3(PAINTED_EYE.x / k.cj.width * 2 - 1, 1 - PAINTED_EYE.y / k.cj.height * 2, .5).unproject(k.cam);
-    const o = k.cam.position, dir = ndc.sub(o).normalize(), d = (ruthHead || ruth).getWorldPosition(new THREE.Vector3()).distanceTo(o);
-    return o.clone().addScaledVector(dir, d - .08);
-  };
-  const eyeScreen = () => {
-    if (!(ruth && ruth.visible)) return revToScreen(REV.eye.x, REV.eye.y);
-    const k = keys.b2 && keys.b2.tex ? keys.b2 : null;
-    // landed on her painting, the view is its camera: the pupil is exactly where it is in the painting, on any screen
-    if (k && st.swing >= 1) { frameKey(k); const wn = k.win, nx = ((PAINTED_EYE.x / k.cj.width * 2 - 1) - wn.cx) / wn.hx, ny = ((1 - PAINTED_EYE.y / k.cj.height * 2) - wn.cy) / wn.hy;
-      return { x: (nx * .5 + .5) * W, y: (-ny * .5 + .5) * H }; }
-    const live = ruthEye(), painted = k ? paintedEye() : null;
-    return toScreen(painted ? live.lerp(painted, THREE.MathUtils.smoothstep(st.swing, .6, 1)) : live);
-  };
   const setPointer = (x, y) => { pointerActive = true; look.x = x; look.y = y; };
   const holdFocus = (x, y) => { heldFocus = x == null ? null : { x, y }; };
   // the machine: the page sets how bright the monitor and each indicator are, 0 to 1
@@ -801,9 +806,9 @@ export function createLab(canvas, opts = {}) {
   const dispose = () => {
     removeEventListener('resize', resize);
     scene.traverse(o => { if (o.geometry) o.geometry.dispose(); for (const m of [].concat(o.material || [])) { for (const k in m) if (m[k] && m[k].isTexture) m[k].dispose(); m.dispose(); } });
-    if (plate.uniforms.reverse.value) plate.uniforms.reverse.value.dispose();
+    for (const k of ['church', 'plain']) if (trip.uniforms[k].value) trip.uniforms[k].value.dispose(); black.dispose(); trip.dispose();
     haloTex.dispose(); halo.material.dispose(); beam.geometry.dispose(); beamMat.dispose(); photonSprites.forEach(sp => sp.material.dispose()); if (scene.environment) scene.environment.dispose();
-    if (pull.snap) pull.snap.dispose(); rt.dispose(); depthCopyRT.dispose(); boxRT.dispose(); boxUvRT.dispose(); boxMaskMat.dispose(); stoneMaskMat.dispose(); boxUvMat.dispose(); composer.dispose(); renderer.dispose(); renderer.forceContextLoss();
+    rt.dispose(); depthCopyRT.dispose(); boxRT.dispose(); boxUvRT.dispose(); boxMaskMat.dispose(); stoneMaskMat.dispose(); boxUvMat.dispose(); composer.dispose(); renderer.dispose(); renderer.forceContextLoss();
   };
   // for the projection test: frames with no blur, and the depth seen from the same camera
   const capture = { sharp: false, depth: null, noStone: false };
@@ -826,6 +831,6 @@ export function createLab(canvas, opts = {}) {
   const cameraJSON = () => ({ position: camera.position.toArray(), quaternion: camera.quaternion.toArray(), fov: camera.fov, aspect: camera.aspect, near: camera.near, far: camera.far,
     view: camera.view && camera.view.enabled ? { fullWidth: camera.view.fullWidth, fullHeight: camera.view.fullHeight, offsetX: camera.view.offsetX, offsetY: camera.view.offsetY, width: camera.view.width, height: camera.view.height } : null,
     projectionMatrix: camera.projectionMatrix.toArray(), matrixWorld: camera.matrixWorld.toArray(), width: W, height: H });
-  return { proj, composer, loadProjection, capture, cameraJSON, st, render, ready, screen, stoneScreen, stonePx, nodeScreen, revToScreen, eyeScreen, loadReverse, setPointer, holdFocus, setMachine, setLights, dispose, renderer,
+  return { proj, composer, loadProjection, capture, cameraJSON, st, render, ready, screen, stoneScreen, stonePx, nodeScreen, setChurch, churchShift, view, setPointer, holdFocus, setMachine, setLights, dispose, renderer,
     is3d: true, get box() { return box; }, camera, scene, boxRT, setOpenAngle: a => { OPEN_ANGLE = a; if (Object.values(keys).some(k => k.liveBox)) bakeBoxUv(); } };
 }
