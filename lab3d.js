@@ -557,6 +557,8 @@ export function createLab(canvas, opts = {}) {
     const prevRT = renderer.getRenderTarget(); renderer.setRenderTarget(composer.renderTarget1);
     ruth.visible = true; const done = renderer.compileAsync ? renderer.compileAsync(scene, camera) : Promise.resolve(renderer.compile(scene, camera)); ruth.visible = false;
     renderer.setRenderTarget(prevRT);
+    // and her textures sent to the GPU now, not on the frame she first shows
+    ruth.traverse(o => { if (o.isMesh) for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap']) if (o.material[k]) renderer.initTexture(o.material[k]); });
     return done.catch(() => {});
   }).catch(() => loadPlate()));
   // where she stands: her model is made for its place in this room, root on the floor at (0, 0.09) unturned; its lean
