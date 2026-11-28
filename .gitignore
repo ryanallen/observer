@@ -6,3 +6,12 @@
 /models/*.glb
 /.discord-webhook
 /log/
+# orchestration: kept here, never published
+/ops/
+/LOG.md
+/AGENTS.md
+/CLAUDE.md
+/.agents/
+/.claude
+/.codex
+/tools/
