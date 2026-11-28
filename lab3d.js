@@ -13,7 +13,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
-const OPEN_ANGLE = .42;
+const OPEN_ANGLE = .72;   // the panels tipped out into a crown, as wide as in the approved open-box picture
 // the diorama camera: from the south-west, high and far, looking down at the worktable with the windows up to the left and
 // the photon bench behind; a long lens for the miniature look
 const VIEW = { dir: new THREE.Vector3(-Math.sin(.66) * Math.cos(.7), Math.sin(.7), Math.cos(.66) * Math.cos(.7)), target: new THREE.Vector3(.05, .76, .7), width: 8.2, fov: 14 };
@@ -137,7 +137,7 @@ export function createLab(canvas, opts = {}) {
       const m = new THREE.Mesh(merged, mat); m.castShadow = cast; m.receiveShadow = true; m.matrixAutoUpdate = false; scene.add(m);
     }
     // the box: each panel's parts merged under its own hinge, and the body's under the box, so they still move together
-    if (!box) return;
+    if (!box || opts.noBoxMerge) return;
     const anchors = new Set([box, ...hinges.map(h => h.o)]), byAnchor = new Map(), boxDrop = [];
     box.updateMatrixWorld(true);
     box.traverse(o => {
@@ -266,7 +266,7 @@ export function createLab(canvas, opts = {}) {
       stoneLight.position.copy(stone.position);
     }
     if (gemMat) gemMat.emissiveIntensity = Math.min(1.2 + 4.5 * st.lift + st.flash * 3, glowK * 6);
-    stoneLight.intensity = glowK * (2.5 + 8 * st.lift) * (.85 + .3 * st.pulse);
+    stoneLight.intensity = glowK * (7 + 4 * st.lift) * (.85 + .3 * st.pulse);
     // the desk lamp, until it is switched off; then only the moon
     lampSpot.intensity = 7 * (1 - st.lamp); lampGlow.intensity = 1.2 * (1 - st.lamp);
     moon.intensity = .8 + .3 * st.lamp; fill.intensity = 1.4 * (1 - .35 * st.lamp);
