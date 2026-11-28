@@ -155,21 +155,21 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     ['bay', 'the bay zoomed out'], ['drop', 'the zoom and drop'], ['underwater', 'underwater'], ['floor', 'the floor'], ['dark', 'the dark beat'],
     ['lab', 'the lab'], ['open', 'the box opens'], ['machine', 'the machine fires'], ['swing', 'the swing to Ruth'], ['steeple', 'the steeple'],
     ['iris', 'the iris'], ['study', 'the study']];
-  const AT = q0.get('at'), DEV = q0.has('dev') || BEATS.some(b => b[0] === AT);
+  const AT = q0.get('at');
   const SCENE_OF = { point: 'opening', lines: 'opening', sweep: 'opening', bay: 'bay', drop: 'bay', underwater: 'bay', floor: 'bay', dark: 'bay',
     lab: 'lab', open: 'lab', machine: 'lab', swing: 'lab', steeple: 'lab', iris: 'lab' };
   let ff = !!SCENE_OF[AT] && !['bay', 'lab'].includes(AT);   // running ahead to the beat
-  const mark = name => { if (ff && name === AT) ff = false; };
-  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b82')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
+  const mark = name => { if (ff && name === AT) { ff = false; setTimeout(() => resumeBed(), 0); } };
+  const loadBay = () => bayLoad || (bayLoad = import('./bay.js?v=' + (q0.get('v') || 'b83')).then(m => { bay = m.createBay($('bay')); window.observerBay = bay; bay.ready.then(() => setTimeout(() => bay.warm(quiet), 400)); return bay; }).catch(e => { console.warn('bay', e); return null; }));
   // ---- Ruth's lab: loaded while the ink closes over the bay, shown as it draws back ----
   let lab = null, labLoad = null;
   // ?lab=3d: the lab as a real 3D room (lab3d.js), with ?room= naming its model while it is being made
   const lab3d = q0.get('lab') === '3d';
   // the 3D lab's look is its paintings, laid on the room from their cameras (?proj=0 turns them off)
-  const loadLab = () => labLoad || (labLoad = import((lab3d ? './lab3d.js?v=' : './lab.js?v=') + (q0.get('v') || 'b82')).then(m => { lab = m.createLab($('lab'), lab3d ? { room: q0.get('room') || 'models/web/lab_room.glb', view: q0.get('view'), noBoxMerge: q0.has('nobm'), ruth3d: q0.get('ruth') !== 'plate' } : undefined); window.observerLab = lab; if (lab3d && q0.get('proj') !== '0') lab.loadProjection(); return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
+  const loadLab = () => labLoad || (labLoad = import((lab3d ? './lab3d.js?v=' : './lab.js?v=') + (q0.get('v') || 'b83')).then(m => { lab = m.createLab($('lab'), lab3d ? { room: q0.get('room') || 'models/web/lab_room.glb', view: q0.get('view'), noBoxMerge: q0.has('nobm'), ruth3d: q0.get('ruth') !== 'plate' } : undefined); window.observerLab = lab; if (lab3d && q0.get('proj') !== '0') lab.loadProjection(); return lab.ready.then(() => lab); }).catch(e => { console.warn('lab', e); return null; }));
   // ---- Blake's study: loaded while the iris video plays, shown once the view has pulled out of the field glasses ----
   let study = null, studyLoad = null;
-  const loadStudy = () => studyLoad || (studyLoad = import('./study.js?v=' + (q0.get('v') || 'b82')).then(m => { study = m.createStudy($('study')); window.observerStudy = study; return study.ready.then(() => study); }).catch(e => { console.warn('study', e); return null; }));
+  const loadStudy = () => studyLoad || (studyLoad = import('./study.js?v=' + (q0.get('v') || 'b83')).then(m => { study = m.createStudy($('study')); window.observerStudy = study; return study.ready.then(() => study); }).catch(e => { console.warn('study', e); return null; }));
   const P = { x: 0, y: 0 };   // the point on screen this frame
   // the bay's shaders are made ready while the opening is quiet: between pings, with no line, eye or pan moving; once the
   // bay is showing, at once
@@ -232,7 +232,6 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   // Sound is on unless turned off (remembered in this browser); a browser lets it start only inside a click, tap or key,
   // so the OBSERVE click is where it starts ----
   let want = true; try { want = localStorage.getItem('observer-sound') !== 'off'; } catch (e) {}
-  if (DEV) want = false;   // the review menu's links start muted
   let ac = null, bus = null, beatN = 0, soundOn = false;
   const synth = new URLSearchParams(location.search).get('beat') === 'synth';
   const qs = new URLSearchParams(location.search);
@@ -259,6 +258,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
     // on iPhone, play through the silent switch as music does
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
     const master = ac.createGain(); master.gain.value = want ? 1 : 0; master.connect(ac.destination);
+    if (qs.has('testmute')) master.disconnect();   // for tests: every sound runs, none reaches the speakers
     bus = { master };
     for (const k of ['voice', 'bed', 'sfx']) { bus[k] = ac.createGain(); bus[k].connect(master); }
     return ac;
@@ -893,7 +893,7 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const showSound = () => { $('sound').classList.toggle('muted', !want); $('sound').setAttribute('aria-label', want ? 'Turn sound off' : 'Turn sound on'); };
   showSound();
   $('sound').onclick = e => {
-    e.stopPropagation(); want = !want; if (!DEV) try { localStorage.setItem('observer-sound', want ? 'on' : 'off'); } catch (err) {}
+    e.stopPropagation(); want = !want; try { localStorage.setItem('observer-sound', want ? 'on' : 'off'); } catch (err) {}
     if (want) startSound(); else { soundOn = false; if (bus) bus.master.gain.setTargetAtTime(0, ac.currentTime, .02); for (const k in live) if (live[k].el) live[k].el.pause(); }
     showSound(); hideTip('sound');
   };
@@ -901,7 +901,13 @@ canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
   const firstGesture = e => {
     if (e.target && e.target.closest && e.target.closest('#sound')) return;
     removeEventListener('pointerdown', firstGesture); removeEventListener('keydown', firstGesture);
-    hideTip('sound'); if (want) startSound();
+    hideTip('sound'); if (want) { startSound(); resumeBed(); }
+  };
+  // a beat opened from the review menu: once the sound can start, the bed that would be playing there comes in (the deep
+  // water once the view is under it); the heartbeat and every later sound play as they come
+  const resumeBed = () => {
+    if (!soundOn || live.deep || !bay || !(bay.camera.position.y < 0) || S.lab > 0) return;
+    if (play('deep', { gain: 0 })) fade('deep', .55, 2500);
   };
   addEventListener('pointerdown', firstGesture); addEventListener('keydown', firstGesture);
   // where the browser already allows it, start at once
