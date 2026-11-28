@@ -27,7 +27,7 @@ export function createLab(canvas, opts = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, mobile ? 1.5 : 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.75;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
   // the diorama's cut: everything west of x -3.55 m, south of z 2.55 m and above 3.3 m is not drawn (the near walls, what
   // hangs on them, and the ceiling); off while the camera orbits inside the room
   const cut = [new THREE.Plane(new THREE.Vector3(1, 0, 0), 3.55), new THREE.Plane(new THREE.Vector3(0, 0, -1), 2.55), new THREE.Plane(new THREE.Vector3(0, -1, 0), 3.3)];
@@ -39,14 +39,17 @@ export function createLab(canvas, opts = {}) {
   const camera = new THREE.PerspectiveCamera(VIEW.fov, 1, 1, 120);
 
   // the lights, all made now so their number never changes (a change recompiles every shader); each is only dimmed
-  const lampSpot = new THREE.SpotLight(0xffb468, 0, 0, 1.15, .85, 1.6);
+  const lampSpot = new THREE.SpotLight(0xffb468, 0, 0, .8, .6, 2);
   lampSpot.castShadow = true; lampSpot.shadow.mapSize.set(mobile ? 1024 : 2048, mobile ? 1024 : 2048); lampSpot.shadow.bias = -.0005; lampSpot.shadow.normalBias = .02;
   lampSpot.shadow.camera.near = .05; lampSpot.shadow.camera.far = 6;
   const lampGlow = new THREE.PointLight(0xffa860, 0, 7, 1.6);          // the shade's own soft spill round the table
-  const moon = new THREE.DirectionalLight(0x9eabc4, 0);              // through the north windows
-  moon.position.set(-3, 7, -9);
+  // the moon, low through the north windows: cool, and shadowed by the walls, so it lays the windows' shafts on the floor
+  const moon = new THREE.DirectionalLight(0x8ea4d6, 0);
+  moon.position.set(-2.5, 5.5, -9); moon.target.position.set(0, 0, 1);
+  moon.castShadow = true; moon.shadow.mapSize.set(mobile ? 1024 : 2048, mobile ? 1024 : 2048); moon.shadow.bias = -.0006; moon.shadow.normalBias = .03;
+  Object.assign(moon.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 25 });
   const fill = new THREE.HemisphereLight(0x34302c, 0x0e0a07, 0);
-  const stoneLight = new THREE.PointLight(0xff6a2c, 0, 0, 1.5);
+  const stoneLight = new THREE.PointLight(0xff5a26, 0, 3.6, 2);   // reaches the table, the bench and the floor round them, not the far walls
   scene.add(lampSpot, lampSpot.target, lampGlow, moon, moon.target, fill, stoneLight);
   // the stone keeps its measured size; it reads by a soft red halo in the air behind it, its dark facets against the glow
   const haloTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
@@ -86,6 +89,10 @@ export function createLab(canvas, opts = {}) {
     room.traverse(o => { if (o.isMesh && o.material.name === 'lamp_bulb_glass' && !bulbMat) { bulbMat = o.material; bulbMat.color.setRGB(.08, .07, .06); bulbMat.roughness = .35; bulbMat.metalness = 0;
       if ('transmission' in bulbMat) bulbMat.transmission = 0; bulbMat.emissive.setHex(0xffd49a); bulbMat.emissiveMap = null; } });
     // black plastic reads as plastic, not a mirror that throws the moon back as white discs
+    // the window glass lets the moonlight through
+    room.traverse(o => { if (o.isMesh && /window_glass|window_night/.test(o.material.name)) o.castShadow = false; });
+    // what shiny things reflect: a dark room with the lamp's warm glow and the cool windows
+    scene.environment = envMap(); room.traverse(o => { if (o.isMesh && o.material.isMeshStandardMaterial) o.material.envMapIntensity = .5; });
     room.traverse(o => { if (o.isMesh && o.material.name === 'lab_black_plastic') { o.material.metalness = 0; o.material.roughness = Math.max(o.material.roughness, .75); } });
     room.traverse(o => { if (o.isMesh && o.material.name === 'box_lid_filigree') { o.material.side = THREE.DoubleSide; o.material.alphaTest = o.material.alphaTest || .5; o.material.transparent = false; } });
     // the stone: lifted out of its seat into the room itself, so it can rise to where it hangs above the box
@@ -119,6 +126,19 @@ export function createLab(canvas, opts = {}) {
     for (let i = 1; i <= 8; i++) emissive.indicators.push(glowMat(nodes['indicator_' + i], i % 3 === 0 ? 0x66ff88 : 0xff3b22));
     mergeStatic(room);
   });
+
+  function envMap() {
+    const es = new THREE.Scene();
+    es.add(new THREE.Mesh(new THREE.SphereGeometry(5, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide,
+      vertexShader: `varying vec3 d; void main() { d = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `varying vec3 d; void main() {
+        float lamp = pow(max(dot(d, normalize(vec3(-.3, .5, .1))), 0.0), 24.0);
+        float win = smoothstep(.0, .3, d.y) * smoothstep(-.4, -.9, d.z) * (1.0 - smoothstep(.75, .95, d.y));
+        gl_FragColor = vec4(vec3(.012, .01, .009) + vec3(5.0, 3.0, 1.4) * lamp + vec3(.10, .14, .24) * win, 1.0); }` })));
+    const pm = new THREE.PMREMGenerator(renderer), t = pm.fromScene(es, .02).texture; pm.dispose();
+    es.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+    return t;
+  }
 
   // everything in the room that never moves or changes is merged, one draw per material, so the room costs a few draws
   // instead of hundreds; the box, the stone and the parts the page lights stay apart
@@ -188,8 +208,8 @@ export function createLab(canvas, opts = {}) {
       void main() {
         float here = viewZ(vUv), pointed = viewZ(focusUv);
         // how far in front of or behind the point in focus, as a share of the distance, plus the miniature's band
-        float blur = max(smoothstep(.012, .07, abs(here - pointed) / pointed) * .9, smoothstep(.10, .40, abs(vUv.y - focusUv.y)) * .8) * amount;
-        vec2 px = vec2(1.0) / resolution * blur * 9.0;
+        float blur = max(smoothstep(.012, .07, abs(here - pointed) / pointed) * .9, smoothstep(.07, .34, abs(vUv.y - focusUv.y))) * amount;
+        vec2 px = vec2(1.0) / resolution * blur * 12.0;
         float turn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
         vec3 soft = vec3(0.0);
         for (int i = 0; i < 16; i++) { float a = float(i) * 2.39996323 + turn, r = sqrt((float(i) + .5) / 16.0); soft += texture2D(tDiffuse, vUv + px * r * vec2(cos(a), sin(a))).rgb; }
@@ -197,7 +217,7 @@ export function createLab(canvas, opts = {}) {
       }`,
   });
   composer.addPass(focus);
-  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .45, .5, .92); composer.addPass(bloom);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), .35, .4, 1.0); composer.addPass(bloom);
   // Ruth's photograph, until her model is in the room: laid over the end of the orbit, the stone on the stone, then pushed
   // in toward her eye
   const plate = new ShaderPass({
@@ -318,11 +338,11 @@ export function createLab(canvas, opts = {}) {
       const over = st.swing > .5 && !ruth ? fg : scene; if (stone.parent !== over) { over.add(stone); over.add(halo); }
     }
     if (gemMat) gemMat.emissiveIntensity = Math.min(1.2 + 4.5 * st.lift + st.flash * 3, glowK * 6);
-    stoneLight.intensity = glowK * (10 + 6 * st.lift) * (.85 + .3 * st.pulse);
+    stoneLight.intensity = glowK * (14 + 8 * st.lift) * (.85 + .3 * st.pulse);
     // the desk lamp, until it is switched off; then only the moon
-    lampSpot.intensity = 7 * (1 - st.lamp); lampGlow.intensity = 1.2 * (1 - st.lamp);
+    lampSpot.intensity = 14 * (1 - st.lamp); lampGlow.intensity = .25 * (1 - st.lamp);
     if (bulbMat) bulbMat.emissiveIntensity = 3 * (1 - st.lamp);
-    moon.intensity = .8 + .3 * st.lamp; fill.intensity = 1.4 * (1 - .35 * st.lamp);
+    moon.intensity = 1.0 + .4 * st.lamp; fill.intensity = .12 * (1 - .35 * st.lamp);
     // Ruth's photograph over the end of the orbit
     plate.uniforms.mixB.value = plate.uniforms.reverse.value ? THREE.MathUtils.smoothstep(st.swing, .72, 1) : 0;
     plate.uniforms.eyeZoom.value = st.eyeZoom;
@@ -353,7 +373,7 @@ export function createLab(canvas, opts = {}) {
     removeEventListener('resize', resize);
     scene.traverse(o => { if (o.geometry) o.geometry.dispose(); for (const m of [].concat(o.material || [])) { for (const k in m) if (m[k] && m[k].isTexture) m[k].dispose(); m.dispose(); } });
     if (plate.uniforms.reverse.value) plate.uniforms.reverse.value.dispose();
-    haloTex.dispose(); halo.material.dispose();
+    haloTex.dispose(); halo.material.dispose(); if (scene.environment) scene.environment.dispose();
     rt.dispose(); composer.dispose(); renderer.dispose(); renderer.forceContextLoss();
   };
   return { st, render, ready, screen, stoneScreen, stonePx, nodeScreen, revToScreen, eyeScreen, loadReverse, setPointer, holdFocus, setMachine, setLights, dispose, renderer,
