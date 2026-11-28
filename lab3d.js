@@ -281,9 +281,10 @@ export function createLab(canvas, opts = {}) {
         // the live box, where a plate has none: the painting gives way to it (its mask softened by a pixel, as the frame is)
         // its edge softened over a pixel round, as the live frame's is, each edge pixel taking the place in the paintings
         // of the box pixels beside it
-        float bm = 0.0; vec4 bu = vec4(0.0);
+        float bm = 0.0, lm = 0.0; vec4 bu = vec4(0.0);
         if (lbA + lbB > 0.0) { vec2 bp = 1.0 / resolution;
-          for (int j = 0; j < 9; j++) { vec2 o = vec2(float(j - (j / 3) * 3 - 1), float(j / 3 - 1)) * bp; float m = step(.5, texture2D(tBox, vUv + o).r); bm += m; bu += m * texture2D(tBoxUv, vUv + o); }
+          for (int j = 0; j < 9; j++) { vec2 o = vec2(float(j - (j / 3) * 3 - 1), float(j / 3 - 1)) * bp; vec4 t = texture2D(tBox, vUv + o); float m = step(.5, t.r); bm += m; bu += m * texture2D(tBoxUv, vUv + o); lm += step(.5, t.g) * (1.0 - m); }
+          lm /= 9.0;
           bu /= max(bm, 1.0); bm /= 9.0; }
         float ka = a.a * wA, kb = b.a * wB, k = max(ka, kb);   // (under the box the plate lands too: the box is a few cm off the table, inside the depth test)
         vec3 paint = (a.rgb * ka + b.rgb * kb) / max(ka + kb, 1e-4);
@@ -295,18 +296,22 @@ export function createLab(canvas, opts = {}) {
         if (bm > 0.0 && bw > 0.0) { vec4 u = bu;
           vec3 bc = ((lbA > 0.0 ? soft(pAb, u.xy) * wA : vec3(0.0)) + (lbB > 0.0 ? soft(pBb, u.zw) * wB : vec3(0.0))) / bw;
           col = mix(col, bc, min(1.0, bw) * bm); }
+        // the live stone, hanging over the paintings: the live frame shows through where it is
+        col = mix(col, base, lm);
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
   proj.enabled = false;
   // the live box's place on screen this frame, white on black: drawn alone (layer 1) in plain white, against the room's depth
-  const boxRT = new THREE.WebGLRenderTarget(1, 1), boxMaskMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  // (red where the box is; green where the live stone is, which the paintings leave out and must not cover either)
+  const boxRT = new THREE.WebGLRenderTarget(1, 1), boxMaskMat = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide }), stoneMaskMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide });
   const drawBoxMask = () => {
-    if (!box.userData.masked) { box.traverse(o => o.layers.enable(1)); box.userData.masked = true; }
+    if (!box.userData.masked) { box.traverse(o => o.layers.enable(1)); if (stone) stone.traverse(o => { if (o.isMesh) o.layers.enable(2); }); box.userData.masked = true; }
     const old = scene.overrideMaterial, bg = scene.background, tm = renderer.toneMapping, cl = renderer.getClearColor(new THREE.Color()), ca = renderer.getClearAlpha();
     scene.overrideMaterial = boxMaskMat; scene.background = null; renderer.toneMapping = THREE.NoToneMapping; camera.layers.set(1);
     const sa = renderer.shadowMap.autoUpdate; renderer.shadowMap.autoUpdate = false;   // the shadows are the room's, not the mask's
     renderer.setRenderTarget(boxRT); renderer.setClearColor(0x000000, 1); renderer.clear(); renderer.render(scene, camera);
+    if (stone && stone.visible) { const ac = renderer.autoClear; renderer.autoClear = false; scene.overrideMaterial = stoneMaskMat; camera.layers.set(2); renderer.render(scene, camera); camera.layers.set(1); renderer.autoClear = ac; }
     scene.overrideMaterial = boxUvMat; renderer.setRenderTarget(boxUvRT); renderer.clear(); renderer.render(scene, camera); renderer.setRenderTarget(null); renderer.shadowMap.autoUpdate = sa;
     camera.layers.set(0); scene.overrideMaterial = old; scene.background = bg; renderer.toneMapping = tm; renderer.setClearColor(cl, ca);
   };
@@ -798,7 +803,7 @@ export function createLab(canvas, opts = {}) {
     scene.traverse(o => { if (o.geometry) o.geometry.dispose(); for (const m of [].concat(o.material || [])) { for (const k in m) if (m[k] && m[k].isTexture) m[k].dispose(); m.dispose(); } });
     if (plate.uniforms.reverse.value) plate.uniforms.reverse.value.dispose();
     haloTex.dispose(); halo.material.dispose(); beam.geometry.dispose(); beamMat.dispose(); photonSprites.forEach(sp => sp.material.dispose()); if (scene.environment) scene.environment.dispose();
-    if (pull.snap) pull.snap.dispose(); rt.dispose(); depthCopyRT.dispose(); boxRT.dispose(); boxUvRT.dispose(); boxMaskMat.dispose(); boxUvMat.dispose(); composer.dispose(); renderer.dispose(); renderer.forceContextLoss();
+    if (pull.snap) pull.snap.dispose(); rt.dispose(); depthCopyRT.dispose(); boxRT.dispose(); boxUvRT.dispose(); boxMaskMat.dispose(); stoneMaskMat.dispose(); boxUvMat.dispose(); composer.dispose(); renderer.dispose(); renderer.forceContextLoss();
   };
   // for the projection test: frames with no blur, and the depth seen from the same camera
   const capture = { sharp: false, depth: null, noStone: false };
