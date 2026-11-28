@@ -118,7 +118,7 @@ export function createLab(canvas, opts = {}) {
       }
     }
     // the window glass lets the moonlight through
-    room.traverse(o => { if (o.isMesh && /window_glass|window_night/.test(o.material.name)) o.castShadow = false; });
+    room.traverse(o => { if (o.isMesh && /window_glass|window_night/.test(o.material.name)) { o.castShadow = false; if (/window_glass/.test(o.material.name)) o.material.depthWrite = false; } });
     // what shiny things reflect: a dark room with the lamp's warm glow and the cool windows
     scene.environment = envMap(); room.traverse(o => { if (o.isMesh && o.material.isMeshStandardMaterial) o.material.envMapIntensity = .5; });
     room.traverse(o => { if (o.isMesh && o.material.name === 'lab_black_plastic') { o.material.metalness = 0; o.material.roughness = Math.max(o.material.roughness, .75); } });
@@ -243,13 +243,15 @@ export function createLab(canvas, opts = {}) {
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `#include <packing>
       uniform sampler2D tDiffuse, tDepth, pA, dA, pB, dB; uniform mat4 invProj, camWorld, vpA, vA, vpB, vB; uniform vec2 rA, rB, focusUv, resolution; uniform float wA, wB, near, far, amount; varying vec2 vUv;
+      float farAway;   // 1 where the live view sees nothing of the room
       float blurAt;   // the miniature's softness here, in pixels on screen, used when sampling the painting
       // how much of a painting lands here: inside its frame, and the surface is the one its camera saw
       vec4 lay(vec3 w, sampler2D p, sampler2D d, mat4 vp, mat4 v, vec2 r) {
         vec4 c = vp * vec4(w, 1.0); if (c.w <= 0.0) return vec4(0.0);
         vec2 uv = c.xy / c.w * .5 + .5; if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec4(0.0);
-        float z = -(v * vec4(w, 1.0)).z, seen = r.x + (1.0 - texture2D(d, uv).r) * (r.y - r.x);
-        float ok = 1.0 - smoothstep(.015, .04, abs(z - seen) / z);
+        float z = -(v * vec4(w, 1.0)).z, stored = texture2D(d, uv).r, seen = r.x + (1.0 - stored) * (r.y - r.x);
+        // where the live view sees nothing of the room (through the windows, past the cut) the painting shows as painted
+        float ok = farAway > .5 ? 1.0 : 1.0 - smoothstep(.015, .04, abs(z - seen) / z);
         vec2 e = min(uv, 1.0 - uv); ok *= smoothstep(0.0, .03, min(e.x, e.y));
         // the painting softened like the rest of the frame: sharp where the pointer rests, soft away from it
         vec2 px = vec2(1.0) / resolution * blurAt; vec3 col = vec3(0.0);
@@ -258,9 +260,9 @@ export function createLab(canvas, opts = {}) {
       }
       void main() {
         vec3 base = texture2D(tDiffuse, vUv).rgb; float dz = texture2D(tDepth, vUv).x;
-        if (dz >= 1.0) { gl_FragColor = vec4(base, 1.0); return; }
+        farAway = dz >= .99999 ? 1.0 : 0.0; if (farAway > .5) dz = .9999;
         float here = -perspectiveDepthToViewZ(dz, near, far), pointed = -perspectiveDepthToViewZ(texture2D(tDepth, focusUv).x, near, far);
-        blurAt = max(smoothstep(.012, .07, abs(here - pointed) / pointed) * .9, smoothstep(.07, .34, abs(vUv.y - focusUv.y))) * amount * 12.0;
+        blurAt = max(smoothstep(.012, .07, abs(here - pointed) / pointed) * .9, smoothstep(.07, .34, abs(vUv.y - focusUv.y))) * amount * 6.0;   // gentler than the room's own: the painting is already soft where it should be
         vec4 vpos = invProj * vec4(vUv * 2.0 - 1.0, dz * 2.0 - 1.0, 1.0); vpos /= vpos.w; vec3 w = (camWorld * vpos).xyz;
         vec4 a = wA > 0.0 ? lay(w, pA, dA, vpA, vA, rA) : vec4(0.0), b = wB > 0.0 ? lay(w, pB, dB, vpB, vB, rB) : vec4(0.0);
         float ka = a.a * wA, kb = b.a * wB, k = max(ka, kb);
@@ -289,9 +291,11 @@ export function createLab(canvas, opts = {}) {
       const rtD = new THREE.WebGLRenderTarget(cj.width, cj.height);
       depthMat.uniforms.zNear.value = key.range[0]; depthMat.uniforms.zFar.value = key.range[1];
       const old = scene.overrideMaterial, bg = scene.background, tm = renderer.toneMapping, sv = stone && stone.visible;
+      // the window glass is see-through in the room, so it is left out of what each camera saw, as in the live depth
+      const glass = []; scene.traverse(o => { if (o.isMesh && o.visible && /window_glass/.test(o.material.name)) { glass.push(o); o.visible = false; } });
       scene.overrideMaterial = depthMat; scene.background = new THREE.Color(0); renderer.toneMapping = THREE.NoToneMapping; halo.visible = false; beam.visible = false; if (stone) stone.visible = false;
       renderer.setRenderTarget(rtD); renderer.clear(); renderer.render(scene, key.cam); renderer.setRenderTarget(null);
-      scene.overrideMaterial = old; scene.background = bg; renderer.toneMapping = tm; halo.visible = true; beam.visible = true; if (stone) stone.visible = sv;
+      scene.overrideMaterial = old; scene.background = bg; renderer.toneMapping = tm; halo.visible = true; beam.visible = true; if (stone) stone.visible = sv; glass.forEach(o => o.visible = true);
       key.depth = rtD; key.vp = new THREE.Matrix4().multiplyMatrices(key.cam.projectionMatrix, key.cam.matrixWorldInverse);
     }));
     proj.enabled = depthCopy.enabled = Object.values(keys).some(k => k.tex);
@@ -462,7 +466,7 @@ export function createLab(canvas, opts = {}) {
       halo.scale.setScalar(.36 * (1 + .25 * st.pulse + .35 * st.flash));
       halo.material.opacity = THREE.MathUtils.smoothstep(st.lift, 0, 1) * (.75 + .25 * st.pulse + .4 * st.flash);
       // past the middle of the turn they are drawn over the photograph that comes in
-      const over = st.swing > .5 && !ruth ? fg : scene; if (stone.parent !== over) { over.add(stone); over.add(halo); }
+      const over = st.swing > .72 && !ruth ? fg : scene;   // once her photograph comes in if (stone.parent !== over) { over.add(stone); over.add(halo); }
     }
     if (gemMat) gemMat.emissiveIntensity = Math.min(1.2 + 4.5 * st.lift + st.flash * 3, glowK * 6);
     stoneLight.intensity = glowK * (14 + 8 * st.lift) * (.85 + .3 * st.pulse) * (ruth ? 1 - .7 * THREE.MathUtils.smoothstep(st.swing, .4, 1) : 1);   // close to Ruth's face it would burn her out
@@ -486,6 +490,8 @@ export function createLab(canvas, opts = {}) {
       const want = [['a', (1 - st.lamp) * (1 - wide) * before], ['open', st.lamp * (1 - wide) * before], ['c', wide * before], [ruth && keys.b2 ? 'b2' : 'b', sw]]
         .filter(([k, w]) => w > 0 && keys[k] && keys[k].tex).sort((x, y) => y[1] - x[1]);
       setSlot('A', want[0] && keys[want[0][0]], want[0] ? want[0][1] : 0); setSlot('B', want[1] && keys[want[1][0]], want[1] ? want[1][1] : 0);
+      // Ruth's photograph, where it comes in at the end of the swing, is on top of every painting
+      const under = 1 - plate.uniforms.mixB.value; proj.uniforms.wA.value *= under; proj.uniforms.wB.value *= under;
     }
     // for paintings of the room alone: the stone, its halo, the beam and photons left out (they are drawn live over them)
     if (stone) stone.visible = !capture.noStone; halo.visible = !capture.noStone && halo.visible; if (capture.noStone) { beamMat.opacity = 0; photonSprites.forEach(sp => sp.material.opacity = 0); }
