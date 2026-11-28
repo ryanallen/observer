@@ -13,7 +13,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
-const OPEN_ANGLE = .72;   // the panels tipped out into a crown, as wide as in the approved open-box picture
+let OPEN_ANGLE = .72;   // the panels tipped out into a crown, as wide as in the approved open-box picture
 // the diorama camera: from the south-west, high and far, looking down at the worktable with the windows up to the left and
 // the photon bench behind; a long lens for the miniature look
 const VIEW = { dir: new THREE.Vector3(-Math.sin(.66) * Math.cos(.7), Math.sin(.7), Math.cos(.66) * Math.cos(.7)), target: new THREE.Vector3(.05, .76, .7), width: 8.2, fov: 14 };
@@ -239,9 +239,11 @@ export function createLab(canvas, opts = {}) {
     uniforms: { tDiffuse: { value: null }, tDepth: { value: null }, invProj: { value: new THREE.Matrix4() }, camWorld: { value: new THREE.Matrix4() },
       pA: { value: null }, dA: { value: null }, vpA: { value: new THREE.Matrix4() }, vA: { value: new THREE.Matrix4() }, rA: { value: new THREE.Vector2(1, 30) }, wA: { value: 0 },
       pB: { value: null }, dB: { value: null }, vpB: { value: new THREE.Matrix4() }, vB: { value: new THREE.Matrix4() }, rB: { value: new THREE.Vector2(1, 30) }, wB: { value: 0 },
-      focusUv: { value: new THREE.Vector2(.5, .5) }, near: { value: 1 }, far: { value: 100 }, amount: { value: 1 }, resolution: { value: new THREE.Vector2(1, 1) } },
+      focusUv: { value: new THREE.Vector2(.5, .5) }, near: { value: 1 }, far: { value: 100 }, amount: { value: 1 }, resolution: { value: new THREE.Vector2(1, 1) },
+      tBox: { value: null }, tBoxUv: { value: null }, pAb: { value: null }, pBb: { value: null }, lbA: { value: 0 }, lbB: { value: 0 } },
     vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
     fragmentShader: `#include <packing>
+      uniform sampler2D tBox, tBoxUv, pAb, pBb; uniform float lbA, lbB;
       uniform sampler2D tDiffuse, tDepth, pA, dA, pB, dB; uniform mat4 invProj, camWorld, vpA, vA, vpB, vB; uniform vec2 rA, rB, focusUv, resolution; uniform float wA, wB, near, far, amount; varying vec2 vUv;
       float farAway;   // 1 where the live view sees nothing of the room
       float blurAt;   // the miniature's softness here, in pixels on screen, used when sampling the painting
@@ -262,6 +264,12 @@ export function createLab(canvas, opts = {}) {
         for (int i = 0; i < 12; i++) { float a = float(i) * 2.39996323, rr = sqrt((float(i) + .5) / 12.0); col += texture2D(p, uv + px * rr * vec2(cos(a), sin(a))).rgb; }
         return vec4(col / 12.0, ok);
       }
+      // a painting at a given place in it, softened as the frame is
+      vec3 soft(sampler2D p, vec2 uv) {
+        vec2 px = vec2(1.0) / resolution * blurAt; vec3 col = vec3(0.0);
+        for (int i = 0; i < 12; i++) { float a = float(i) * 2.39996323, rr = sqrt((float(i) + .5) / 12.0); col += texture2D(p, uv + px * rr * vec2(cos(a), sin(a))).rgb; }
+        return col / 12.0;
+      }
       void main() {
         vec3 base = texture2D(tDiffuse, vUv).rgb; float dz = texture2D(tDepth, vUv).x;
         farAway = dz >= .99999 ? 1.0 : 0.0; if (farAway > .5) dz = .9999;
@@ -269,13 +277,62 @@ export function createLab(canvas, opts = {}) {
         blurAt = max(smoothstep(.012, .07, abs(here - pointed) / pointed) * .9, smoothstep(.07, .34, abs(vUv.y - focusUv.y))) * amount * 6.0;   // gentler than the room's own: the painting is already soft where it should be
         vec4 vpos = invProj * vec4(vUv * 2.0 - 1.0, dz * 2.0 - 1.0, 1.0); vpos /= vpos.w; vec3 w = (camWorld * vpos).xyz;
         vec4 a = wA > 0.0 ? lay(w, pA, dA, vpA, vA, rA) : vec4(0.0), b = wB > 0.0 ? lay(w, pB, dB, vpB, vB, rB) : vec4(0.0);
-        float ka = a.a * wA, kb = b.a * wB, k = max(ka, kb);
+        // the live box, where a plate has none: the painting gives way to it (its mask softened by a pixel, as the frame is)
+        // its edge softened over a pixel round, as the live frame's is, each edge pixel taking the place in the paintings
+        // of the box pixels beside it
+        float bm = 0.0; vec4 bu = vec4(0.0);
+        if (lbA + lbB > 0.0) { vec2 bp = 1.0 / resolution;
+          for (int j = 0; j < 9; j++) { vec2 o = vec2(float(j - (j / 3) * 3 - 1), float(j / 3 - 1)) * bp; float m = step(.5, texture2D(tBox, vUv + o).r); bm += m; bu += m * texture2D(tBoxUv, vUv + o); }
+          bu /= max(bm, 1.0); bm /= 9.0; }
+        float ka = a.a * wA, kb = b.a * wB, k = max(ka, kb);   // (under the box the plate lands too: the box is a few cm off the table, inside the depth test)
         vec3 paint = (a.rgb * ka + b.rgb * kb) / max(ka + kb, 1e-4);
         // this runs after the frame's tone mapping, so the paintings keep their own colours exactly
-        gl_FragColor = vec4(mix(base, paint, k), 1.0);
+        vec3 col = mix(base, paint, k);
+        // the box wears its own painted pixels: each part carries the look it has in the paintings (closed in the lamp-lit
+        // one, open in the open and firing ones), so it opens as a solid thing and lands exactly on the painted box
+        float bw = wA * lbA + wB * lbB;
+        if (bm > 0.0 && bw > 0.0) { vec4 u = bu;
+          vec3 bc = ((lbA > 0.0 ? soft(pAb, u.xy) * wA : vec3(0.0)) + (lbB > 0.0 ? soft(pBb, u.zw) * wB : vec3(0.0))) / bw;
+          col = mix(col, bc, min(1.0, bw) * bm); }
+        gl_FragColor = vec4(col, 1.0);
       }`,
   });
   proj.enabled = false;
+  // the live box's place on screen this frame, white on black: drawn alone (layer 1) in plain white, against the room's depth
+  const boxRT = new THREE.WebGLRenderTarget(1, 1), boxMaskMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  const drawBoxMask = () => {
+    if (!box.userData.masked) { box.traverse(o => o.layers.enable(1)); box.userData.masked = true; }
+    const old = scene.overrideMaterial, bg = scene.background, tm = renderer.toneMapping, cl = renderer.getClearColor(new THREE.Color()), ca = renderer.getClearAlpha();
+    scene.overrideMaterial = boxMaskMat; scene.background = null; renderer.toneMapping = THREE.NoToneMapping; camera.layers.set(1);
+    const sa = renderer.shadowMap.autoUpdate; renderer.shadowMap.autoUpdate = false;   // the shadows are the room's, not the mask's
+    renderer.setRenderTarget(boxRT); renderer.setClearColor(0x000000, 1); renderer.clear(); renderer.render(scene, camera);
+    scene.overrideMaterial = boxUvMat; renderer.setRenderTarget(boxUvRT); renderer.clear(); renderer.render(scene, camera); renderer.setRenderTarget(null); renderer.shadowMap.autoUpdate = sa;
+    camera.layers.set(0); scene.overrideMaterial = old; scene.background = bg; renderer.toneMapping = tm; renderer.setClearColor(cl, ca);
+  };
+  // where each point of the box is in the paintings of the two slots this frame, from coordinates baked per painting
+  const boxUvRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+  const boxUvMat = new THREE.ShaderMaterial({ side: THREE.DoubleSide, uniforms: { selA: { value: 0 }, selB: { value: 0 } },
+    vertexShader: `attribute vec2 uvKa, uvKo, uvKc; uniform float selA, selB; varying vec4 vS;
+      vec2 pick(float s) { return s < .5 ? uvKa : s < 1.5 ? uvKo : uvKc; }
+      void main() { vS = vec4(pick(selA), pick(selB)); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `varying vec4 vS; void main() { gl_FragColor = vS; }` });
+  const SEL = { a: 0, open: 1, c: 2 };
+  // each vertex of the box, posed as in a painting (closed in the lamp-lit one, open in the others), seen by its camera
+  const bakeBoxUv = () => {
+    if (!box) return;
+    const poses = [['uvKa', keys.a, 0], ['uvKo', keys.open, 1], ['uvKc', keys.c, 1]], v = new THREE.Vector3();
+    const meshes = []; box.traverse(o => { if (o.isMesh) meshes.push(o); });
+    for (const [name, key, o] of poses) {
+      for (const h of hinges) h.o.quaternion.copy(h.base).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), o * OPEN_ANGLE));
+      box.updateMatrixWorld(true);
+      for (const m of meshes) {
+        const pos = m.geometry.attributes.position, out = new Float32Array(pos.count * 2);
+        if (key && key.vp) for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld).applyMatrix4(key.vp); out[i * 2] = v.x * .5 + .5; out[i * 2 + 1] = v.y * .5 + .5; }
+        m.geometry.setAttribute(name, new THREE.BufferAttribute(out, 2));
+      }
+    }
+    box.updateMatrixWorld(true);
+  };
   // the paintings and the depth each camera saw, made once when they are loaded
   // the key frames: a painting of the room from a known camera for each beat it rests on (lab: the lamp on; open: the box
   // open; c: the firing, seen from far out; b: the end of the swing). Each is laid back on the room from its own camera;
@@ -292,9 +349,11 @@ export function createLab(canvas, opts = {}) {
       const key = keys[k] = { cam: keyCamera(cj), cj, tex: null, depth: null, range: cj.depthRange || [cj.near, cj.far] };
       // where the room has a plate without the box (lamp-on, open, firing), the box is the live 3D one, opening on its
       // hinges over the plate; the painting with the box in it is the fallback
-      const plain = ['a', 'open', 'c'].includes(k) ? await tl.loadAsync(base + k + '_nobox.webp').catch(() => null) : null;
-      key.liveBox = !!plain || (opts.liveBox && ['a', 'open', 'c'].includes(k));
-      key.tex = plain || await tl.loadAsync(base + k + '_paint.webp').catch(() => null); if (!key.tex) return;
+      // (asked for only where the camera says its plate exists; ?livebox tries the plates being made)
+      const plain = ['a', 'open', 'c'].includes(k) && (cj.nobox || opts.liveBox) ? await tl.loadAsync((cj.nobox ? base : 'models/web/proj_box/') + k + '_nobox.webp').catch(() => null) : null;
+      const painted = await tl.loadAsync(base + k + '_paint.webp').catch(() => null);
+      key.liveBox = !!(plain && painted); key.tex = key.liveBox ? plain : painted; key.texBox = key.liveBox ? painted : null; if (!key.tex) return;
+      if (key.texBox) { key.texBox.minFilter = THREE.LinearFilter; key.texBox.generateMipmaps = false; }
       key.tex.minFilter = THREE.LinearFilter; key.tex.generateMipmaps = false;
       key.depth = new THREE.WebGLRenderTarget(cj.width, cj.height, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter }); keyDepth(key);
       key.vp = new THREE.Matrix4().multiplyMatrices(key.cam.projectionMatrix, key.cam.matrixWorldInverse);
@@ -302,6 +361,7 @@ export function createLab(canvas, opts = {}) {
     // the lamp-on and box-open paintings share a camera and the view rests on the first's framing: keep it inside both
     const sa = keys.a && keys.a.cj.solid, so = keys.open && keys.open.cj.solid;
     if (sa && so && sa.solid.length === so.solid.length) { sa.solid = Array.from(sa.solid, (c, i) => c === '1' && so.solid[i] === '1' ? '1' : '0').join(''); keys.a.win = null; }
+    if (Object.values(keys).some(k => k.liveBox)) bakeBoxUv();
     proj.enabled = depthCopy.enabled = Object.values(keys).some(k => k.tex);
   };
   // what a key frame's camera saw, as depth; redone when Ruth comes into the room, so her painting lands on her
@@ -462,7 +522,7 @@ export function createLab(canvas, opts = {}) {
   let frameW = VIEW.width, dist = 30, coverX = 1, coverY = 1, fovBase = VIEW.fov, framedP = null;
   const resize = () => {
     W = canvas.clientWidth || innerWidth; H = canvas.clientHeight || innerHeight;
-    renderer.setSize(W, H, false); composer.setSize(W, H); depthCopyRT.setSize(Math.round(W * renderer.getPixelRatio()), Math.round(H * renderer.getPixelRatio()));
+    renderer.setSize(W, H, false); composer.setSize(W, H); depthCopyRT.setSize(Math.round(W * renderer.getPixelRatio()), Math.round(H * renderer.getPixelRatio())); boxRT.setSize(Math.round(W * renderer.getPixelRatio()), Math.round(H * renderer.getPixelRatio())); boxUvRT.setSize(Math.round(W * renderer.getPixelRatio()), Math.round(H * renderer.getPixelRatio()));
     const pr = renderer.getPixelRatio(); focus.uniforms.resolution.value.set(W, H); bloom.resolution.set(W * pr / 2, H * pr / 2);
     camera.aspect = W / H;
     // the same width of room on any screen; a tall screen sees more floor
@@ -597,6 +657,11 @@ export function createLab(canvas, opts = {}) {
       setSlot('A', want[0] && keys[want[0][0]], want[0] ? want[0][1] : 0); setSlot('B', want[1] && keys[want[1][0]], want[1] ? want[1][1] : 0);
       // Ruth's photograph, where it comes in at the end of the swing, is on top of every painting
       const under = 1 - plate.uniforms.mixB.value; proj.uniforms.wA.value *= under; proj.uniforms.wB.value *= under;
+      const la = want[0] && keys[want[0][0]].liveBox ? 1 : 0, lb = want[1] && keys[want[1][0]].liveBox ? 1 : 0;
+      proj.uniforms.lbA.value = la; proj.uniforms.lbB.value = lb;
+      if (la) { proj.uniforms.pAb.value = keys[want[0][0]].texBox; boxUvMat.uniforms.selA.value = SEL[want[0][0]]; }
+      if (lb) { proj.uniforms.pBb.value = keys[want[1][0]].texBox; boxUvMat.uniforms.selB.value = SEL[want[1][0]]; }
+      if ((la || lb) && box && !capture.depth) { drawBoxMask(); proj.uniforms.tBox.value = boxRT.texture; proj.uniforms.tBoxUv.value = boxUvRT.texture; }
     }
     // for paintings of the room alone: the stone, its halo, the beam and photons left out (they are drawn live over them)
     if (stone) stone.visible = !capture.noStone; halo.visible = !capture.noStone && halo.visible; if (capture.noStone) { beamMat.opacity = 0; photonSprites.forEach(sp => sp.material.opacity = 0); }
@@ -649,7 +714,7 @@ export function createLab(canvas, opts = {}) {
     scene.traverse(o => { if (o.geometry) o.geometry.dispose(); for (const m of [].concat(o.material || [])) { for (const k in m) if (m[k] && m[k].isTexture) m[k].dispose(); m.dispose(); } });
     if (plate.uniforms.reverse.value) plate.uniforms.reverse.value.dispose();
     haloTex.dispose(); halo.material.dispose(); beam.geometry.dispose(); beamMat.dispose(); photonSprites.forEach(sp => sp.material.dispose()); if (scene.environment) scene.environment.dispose();
-    rt.dispose(); depthCopyRT.dispose(); composer.dispose(); renderer.dispose(); renderer.forceContextLoss();
+    rt.dispose(); depthCopyRT.dispose(); boxRT.dispose(); boxUvRT.dispose(); boxMaskMat.dispose(); boxUvMat.dispose(); composer.dispose(); renderer.dispose(); renderer.forceContextLoss();
   };
   // for the projection test: frames with no blur, and the depth seen from the same camera
   const capture = { sharp: false, depth: null, noStone: false };
@@ -673,5 +738,5 @@ export function createLab(canvas, opts = {}) {
     view: camera.view && camera.view.enabled ? { fullWidth: camera.view.fullWidth, fullHeight: camera.view.fullHeight, offsetX: camera.view.offsetX, offsetY: camera.view.offsetY, width: camera.view.width, height: camera.view.height } : null,
     projectionMatrix: camera.projectionMatrix.toArray(), matrixWorld: camera.matrixWorld.toArray(), width: W, height: H });
   return { proj, composer, loadProjection, capture, cameraJSON, st, render, ready, screen, stoneScreen, stonePx, nodeScreen, revToScreen, eyeScreen, loadReverse, setPointer, holdFocus, setMachine, setLights, dispose, renderer,
-    is3d: true, get box() { return box; }, camera, scene };
+    is3d: true, get box() { return box; }, camera, scene, boxRT, setOpenAngle: a => { OPEN_ANGLE = a; if (Object.values(keys).some(k => k.liveBox)) bakeBoxUv(); } };
 }
